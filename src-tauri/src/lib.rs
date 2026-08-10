@@ -3,13 +3,13 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    process::Command,
     sync::{Arc, Mutex},
 };
 use tauri::{Manager, State};
 
 mod dashboard;
 mod ingest;
+mod launcher;
 mod preview;
 mod storage;
 
@@ -123,6 +123,43 @@ struct PageRequest {
 struct CreateGroupResult {
     dashboard: DashboardState,
     group_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateNoteRequest {
+    page_id: String,
+    parent_group_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateNoteResult {
+    dashboard: DashboardState,
+    note_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateNoteRequest {
+    card_id: String,
+    note_text: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateGroupResumeRequest {
+    group_id: String,
+    resume_note: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetLaunchEnabledRequest {
+    card_id: String,
+    enabled: bool,
+    #[serde(default)]
+    allow_risky: bool,
 }
 
 fn load_registry(file_path: &Path) -> RegistryDocument {
@@ -284,6 +321,101 @@ async fn ungroup(
         .await
         .map_err(|error| {
             CommandError::new("backgroundFailed", format!("解散群組背景工作失敗：{error}"))
+        })?
+        .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+async fn create_note(
+    request: CreateNoteRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<CreateNoteResult, CommandError> {
+    let store = Arc::clone(&runtime.store);
+    tauri::async_runtime::spawn_blocking(move || {
+        store
+            .create_note(&request.page_id, request.parent_group_id.as_deref())
+            .map(|(dashboard, note_id)| CreateNoteResult { dashboard, note_id })
+    })
+    .await
+    .map_err(|error| {
+        CommandError::new("backgroundFailed", format!("新增筆記背景工作失敗：{error}"))
+    })?
+    .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+async fn update_note(
+    request: UpdateNoteRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<DashboardState, CommandError> {
+    let store = Arc::clone(&runtime.store);
+    tauri::async_runtime::spawn_blocking(move || {
+        store.update_note_text(&request.card_id, &request.note_text)
+    })
+    .await
+    .map_err(|error| {
+        CommandError::new("backgroundFailed", format!("保存筆記背景工作失敗：{error}"))
+    })?
+    .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+async fn update_group_resume(
+    request: UpdateGroupResumeRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<DashboardState, CommandError> {
+    let store = Arc::clone(&runtime.store);
+    tauri::async_runtime::spawn_blocking(move || {
+        store.update_group_resume_note(&request.group_id, &request.resume_note)
+    })
+    .await
+    .map_err(|error| {
+        CommandError::new(
+            "backgroundFailed",
+            format!("保存最近狀態背景工作失敗：{error}"),
+        )
+    })?
+    .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+async fn set_launch_enabled(
+    request: SetLaunchEnabledRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<DashboardState, CommandError> {
+    let store = Arc::clone(&runtime.store);
+    tauri::async_runtime::spawn_blocking(move || {
+        store.set_launch_enabled(&request.card_id, request.enabled, request.allow_risky)
+    })
+    .await
+    .map_err(|error| {
+        CommandError::new(
+            "backgroundFailed",
+            format!("更新一次開啟清單背景工作失敗：{error}"),
+        )
+    })?
+    .map_err(|message| {
+        if message == "riskyConfirmationRequired" {
+            CommandError::new(
+                "riskyConfirmationRequired",
+                "開啟此卡片可能執行程式或變更系統，請再次確認。",
+            )
+        } else {
+            CommandError::storage(message)
+        }
+    })
+}
+
+#[tauri::command]
+async fn launch_group(
+    request: GroupRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<launcher::GroupLaunchResult, CommandError> {
+    let store = Arc::clone(&runtime.store);
+    tauri::async_runtime::spawn_blocking(move || launcher::launch_group(&store, &request.group_id))
+        .await
+        .map_err(|error| {
+            CommandError::new("backgroundFailed", format!("開啟群組背景工作失敗：{error}"))
         })?
         .map_err(CommandError::storage)
 }
@@ -476,33 +608,7 @@ fn launch_card(card_id: String, runtime: State<'_, PersonalPlaceRuntime>) -> Res
         .store
         .resolve_card_target(&card_id)?
         .ok_or_else(|| "找不到要開啟的卡片。".to_string())?;
-    match target.target_kind.as_str() {
-        "url" => {
-            let url = ingest::normalize_url(&target.locator)?;
-            open::that(url.as_str()).map_err(|error| format!("無法開啟網址：{error}"))
-        }
-        "local" => {
-            let path = PathBuf::from(&target.locator);
-            if !path.exists() {
-                return Err(format!("這個項目已被移動或刪除：{}", path.display()));
-            }
-            open::that(&path).map_err(|error| format!("無法開啟 {}：{error}", path.display()))
-        }
-        "builtin" => {
-            let executable = match target.locator.as_str() {
-                "file-explorer" => "explorer.exe",
-                "notepad" => "notepad.exe",
-                "calculator" => "calc.exe",
-                _ => return Err("這張舊版應用程式卡片沒有可用的啟動目標。".to_string()),
-            };
-            Command::new(executable)
-                .spawn()
-                .map(|_| ())
-                .map_err(|error| format!("無法啟動 {}：{error}", target.card.title))
-        }
-        "missing" => Err("這張卡片的目標已遺失。".to_string()),
-        _ => Err("這張卡片使用不支援的目標類型。".to_string()),
-    }
+    launcher::launch_card_target(&target)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -542,6 +648,11 @@ pub fn run() {
             delete_cards,
             create_group,
             ungroup,
+            create_note,
+            update_note,
+            update_group_resume,
+            set_launch_enabled,
+            launch_group,
             undo_last,
             create_page,
             update_page,

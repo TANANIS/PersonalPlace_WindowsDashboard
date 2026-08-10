@@ -148,15 +148,20 @@ impl WorkspaceStore {
             .map_err(|error| format!("無法保存工作台資料：{error}"))
     }
 
-    pub fn target_exists_on_page(&self, page_id: &str, target_id: &str) -> Result<bool, String> {
+    pub fn target_exists_in_container(
+        &self,
+        page_id: &str,
+        parent_group_id: Option<&str>,
+        target_id: &str,
+    ) -> Result<bool, String> {
         let connection = self.lock()?;
         connection
             .query_row(
                 "SELECT EXISTS(
                      SELECT 1 FROM cards
-                     WHERE page_id = ?1 AND parent_group_id IS NULL AND target_id = ?2
+                     WHERE page_id = ?1 AND parent_group_id IS ?2 AND target_id = ?3
                  )",
-                params![page_id, target_id],
+                params![page_id, parent_group_id, target_id],
                 |row| row.get(0),
             )
             .map_err(|error| format!("無法檢查重複項目：{error}"))
@@ -164,23 +169,24 @@ impl WorkspaceStore {
 
     /// Finds schema-v2 URL targets by their normalized locator, including legacy
     /// IDs whose spelling/casing differs from the canonical URL.
-    pub fn equivalent_url_target(
+    pub fn equivalent_url_target_in_container(
         &self,
         page_id: &str,
+        parent_group_id: Option<&str>,
         normalized_url: &str,
     ) -> Result<Option<(String, bool)>, String> {
         let connection = self.lock()?;
         let mut statement = connection
             .prepare(
                 "SELECT t.id, t.locator,
-                        EXISTS(SELECT 1 FROM cards c
-                               WHERE c.target_id = t.id AND c.page_id = ?1
-                                 AND c.parent_group_id IS NULL)
+                         EXISTS(SELECT 1 FROM cards c
+                                WHERE c.target_id = t.id AND c.page_id = ?1
+                                  AND c.parent_group_id IS ?2)
                  FROM targets t WHERE t.kind = 'url' ORDER BY t.id",
             )
             .map_err(|error| format!("無法準備網址重複檢查：{error}"))?;
         let candidates = statement
-            .query_map([page_id], |row| {
+            .query_map(params![page_id, parent_group_id], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
@@ -205,9 +211,21 @@ impl WorkspaceStore {
 
     /// Inserts exactly one target/card pair in one transaction. A failed item never
     /// leaves a target without its card, while callers can continue the rest of a batch.
+    #[cfg(test)]
     pub fn insert_ingested_item(
         &self,
         item: &LauncherItem,
+        target_kind: &str,
+        locator: &str,
+        allow_duplicate: bool,
+    ) -> Result<InsertItemResult, String> {
+        self.insert_ingested_item_in_container(item, None, target_kind, locator, allow_duplicate)
+    }
+
+    pub fn insert_ingested_item_in_container(
+        &self,
+        item: &LauncherItem,
+        parent_group_id: Option<&str>,
         target_kind: &str,
         locator: &str,
         allow_duplicate: bool,
@@ -227,14 +245,30 @@ impl WorkspaceStore {
         if !page_exists {
             return Err("找不到要加入卡片的頁面。".to_string());
         }
+        if let Some(group_id) = parent_group_id {
+            let group_is_valid: bool = transaction
+                .query_row(
+                    "SELECT EXISTS(
+                         SELECT 1 FROM cards
+                         WHERE id = ?1 AND page_id = ?2 AND card_type = 'group'
+                           AND parent_group_id IS NULL
+                     )",
+                    params![group_id, item.workspace_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| format!("無法確認目標群組：{error}"))?;
+            if !group_is_valid {
+                return Err("找不到要加入卡片的群組。".to_string());
+            }
+        }
 
         let duplicate: bool = transaction
             .query_row(
                 "SELECT EXISTS(
                      SELECT 1 FROM cards
-                     WHERE page_id = ?1 AND parent_group_id IS NULL AND target_id = ?2
+                     WHERE page_id = ?1 AND parent_group_id IS ?2 AND target_id = ?3
                  )",
-                params![item.workspace_id, item.target],
+                params![item.workspace_id, parent_group_id, item.target],
                 |row| row.get(0),
             )
             .map_err(|error| format!("無法檢查重複項目：{error}"))?;
@@ -267,12 +301,12 @@ impl WorkspaceStore {
         let position: i64 = transaction
             .query_row(
                 "SELECT COALESCE(MAX(position), -1) + 1 FROM cards
-                 WHERE page_id = ?1 AND parent_group_id IS NULL",
-                [&item.workspace_id],
+                 WHERE page_id = ?1 AND parent_group_id IS ?2",
+                params![item.workspace_id, parent_group_id],
                 |row| row.get(0),
             )
             .map_err(|error| format!("無法計算卡片位置：{error}"))?;
-        insert_card(&transaction, item, position)?;
+        insert_card_in_container(&transaction, item, parent_group_id, position)?;
         transaction
             .commit()
             .map_err(|error| format!("無法完成項目新增：{error}"))?;
@@ -591,17 +625,26 @@ fn insert_card(
     item: &LauncherItem,
     position: i64,
 ) -> Result<(), String> {
+    insert_card_in_container(transaction, item, None, position)
+}
+
+fn insert_card_in_container(
+    transaction: &Transaction<'_>,
+    item: &LauncherItem,
+    parent_group_id: Option<&str>,
+    position: i64,
+) -> Result<(), String> {
     transaction
         .execute(
             "INSERT INTO cards(
                 id, page_id, parent_group_id, card_type, target_id,
                 title, subtitle, kind, symbol, tone, size, position,
                 note_text, resume_note, launch_enabled, last_opened_at
-             ) VALUES(?1, ?2, NULL, 'target', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+             ) VALUES(?1, ?2, ?3, 'target', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
                       '', '', 0, NULL)
              ON CONFLICT(id) DO UPDATE SET
                 page_id = excluded.page_id,
-                parent_group_id = NULL,
+                parent_group_id = excluded.parent_group_id,
                 card_type = 'target',
                 target_id = excluded.target_id,
                 title = excluded.title,
@@ -614,6 +657,7 @@ fn insert_card(
             params![
                 item.id,
                 item.workspace_id,
+                parent_group_id,
                 item.target,
                 item.title,
                 item.subtitle,

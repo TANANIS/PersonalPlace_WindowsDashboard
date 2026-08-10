@@ -1,6 +1,6 @@
 # Personal Place
 
-本機優先的 Windows 個人首頁。目前完成 0.6.0「編輯模式、群組、頁面與 Undo」里程碑。
+本機優先的 Windows 個人首頁。目前完成 0.7.0「讓 Group 成為真正的 Place」里程碑。
 
 ## 目前功能
 
@@ -37,6 +37,13 @@
 - 排序、Resize、刪除、群組與頁面操作使用明確的 SQLite transaction command
 - 所有整理操作在目前執行期間保留最多 20 筆 Undo，不保存到下次啟動
 - 已移除前端整份 `save_workspace_state` 自動保存流程
+- 一般模式點擊群組會進入獨立 Place 詳細畫面，返回後保留頁面、搜尋、捲動與模式
+- Place 內可直接加入 App／網站／檔案／資料夾，或建立最小純文字 Note Card
+- 每個 target card 可選擇是否加入 Launch Set；高風險內容加入時需再次確認
+- 「開啟這個地方」依順序每隔約 250 ms 啟動，單項失敗不停止其他項目
+- 啟動結果逐項區分成功、失敗、遺失與略過，並保留到使用者自行關閉
+- Group 提供最多 2,000 字的「上次做到這裡」，Note 提供最多 10,000 字純文字內容
+- Resume Note 與 Note 內容採 500 ms debounce 自動保存，並顯示保存狀態
 
 ## 開發
 
@@ -52,7 +59,7 @@ pnpm test
 pnpm tauri dev
 ```
 
-## 0.6.0 驗證
+## 0.7.0 驗證
 
 ```powershell
 pnpm build
@@ -61,9 +68,9 @@ cargo clippy --manifest-path .\src-tauri\Cargo.toml --all-targets
 pnpm tauri build
 ```
 
-## 下一階段（0.7.0）
+## 下一階段（0.8.0）
 
-- Group 詳細畫面
-- Launch Set 與逐項啟動結果
-- 「上次做到這裡」簡短狀態
-- 最小純文字 Note Card
+- 跨所有 Page 與 Group 的全域搜尋
+- 壞掉本機目標狀態與重新定位
+- `.personal-place` 版本化備份與安全還原
+- 資料庫無法開啟時的 Recovery 畫面

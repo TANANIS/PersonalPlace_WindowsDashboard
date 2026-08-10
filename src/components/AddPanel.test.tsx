@@ -59,6 +59,25 @@ describe("AddPanel", () => {
     vi.clearAllMocks();
   });
 
+  it("群組內新增會把容器 ID 交給統一加入引擎", async () => {
+    const user = userEvent.setup();
+    const performIngest = vi.fn().mockResolvedValue({ added: [], issues: [], errors: [] });
+    render(
+      <AddPanel
+        pageId="home"
+        parentGroupId="group-unity"
+        onClose={vi.fn()}
+        performIngest={performIngest}
+      />,
+    );
+    await user.type(screen.getByLabelText("貼上網址或路徑"), "https://unity.com");
+    await user.click(screen.getByRole("button", { name: "加入" }));
+    await waitFor(() => expect(performIngest).toHaveBeenCalledWith(expect.objectContaining({
+      pageId: "home",
+      parentGroupId: "group-unity",
+    })));
+  });
+
   it("只需貼上網址就能以統一契約加入", async () => {
     const user = userEvent.setup();
     const performIngest = vi.fn().mockResolvedValue({
@@ -74,6 +93,7 @@ describe("AddPanel", () => {
     await waitFor(() =>
       expect(performIngest).toHaveBeenCalledWith({
         pageId: "home",
+        parentGroupId: null,
         inputs: [{ inputType: "url", value: "https://www.youtube.com" }],
         allowDuplicate: false,
         allowRisky: false,
@@ -112,6 +132,7 @@ describe("AddPanel", () => {
     await waitFor(() => expect(performIngest).toHaveBeenCalledTimes(2));
     expect(performIngest.mock.calls[1][0]).toEqual({
       pageId: "home",
+      parentGroupId: null,
       inputs: [{ inputType: "path", value: duplicatePath }],
       allowDuplicate: true,
       allowRisky: false,
@@ -297,6 +318,7 @@ describe("AddPanel", () => {
     await waitFor(() =>
       expect(performIngest).toHaveBeenCalledWith({
         pageId: "home",
+        parentGroupId: null,
         inputs: paths.map((value) => ({ inputType: "path", value })),
         allowDuplicate: false,
         allowRisky: false,
@@ -318,6 +340,7 @@ describe("AddPanel", () => {
     await waitFor(() => expect(performIngest).toHaveBeenCalledTimes(1));
     expect(performIngest).toHaveBeenLastCalledWith({
       pageId: "home",
+      parentGroupId: null,
       inputs: [{ inputType: "path", value: folder }],
       allowDuplicate: false,
       allowRisky: false,

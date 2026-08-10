@@ -13,6 +13,7 @@ import type { LauncherItem } from "../types";
 
 interface AddPanelProps {
   pageId: string;
+  parentGroupId?: string | null;
   onAdded?: (items: LauncherItem[]) => void;
   onClose: () => void;
   performIngest?: (request: IngestRequest) => Promise<IngestResult>;
@@ -237,6 +238,7 @@ export function IngestResultPanel({
 
 export function AddPanel({
   pageId,
+  parentGroupId = null,
   onAdded,
   onClose,
   performIngest = ingestItems,
@@ -258,6 +260,7 @@ export function AddPanel({
     try {
       const nextResult = await performIngest({
         pageId,
+        parentGroupId,
         inputs,
         allowDuplicate: false,
         allowRisky: false,
@@ -289,6 +292,7 @@ export function AddPanel({
       try {
         const nextResult = await performIngest({
           pageId,
+          parentGroupId,
           inputs: group.inputs,
           ...group.permissions,
         });

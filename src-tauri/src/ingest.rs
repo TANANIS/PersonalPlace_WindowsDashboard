@@ -46,6 +46,8 @@ pub struct IngestInput {
 #[serde(rename_all = "camelCase")]
 pub struct IngestRequest {
     pub page_id: String,
+    #[serde(default)]
+    pub parent_group_id: Option<String>,
     pub inputs: Vec<IngestInput>,
     #[serde(default)]
     pub allow_duplicate: bool,
@@ -132,6 +134,7 @@ pub fn ingest_items(
                 preview_cache_dir,
                 preview_cache_io,
                 &request.page_id,
+                request.parent_group_id.as_deref(),
                 input_index,
                 input,
                 request.allow_duplicate,
@@ -143,6 +146,7 @@ pub fn ingest_items(
                 preview_cache_dir,
                 preview_cache_io,
                 &request.page_id,
+                request.parent_group_id.as_deref(),
                 input_index,
                 input,
                 request.allow_duplicate,
@@ -166,6 +170,7 @@ fn ingest_path(
     preview_cache_dir: &Path,
     preview_cache_io: &Mutex<()>,
     page_id: &str,
+    parent_group_id: Option<&str>,
     input_index: usize,
     input: IngestInput,
     allow_duplicate: bool,
@@ -215,7 +220,7 @@ fn ingest_path(
 
     let target_id = target_id_for_path(&canonical_path);
     if !allow_duplicate {
-        match store.target_exists_on_page(page_id, &target_id) {
+        match store.target_exists_in_container(page_id, parent_group_id, &target_id) {
             Ok(true) => {
                 result.issues.push(finding(
                     input_index,
@@ -240,8 +245,9 @@ fn ingest_path(
 
     let defaults = defaults_for_local_path(&canonical_path);
     let item = launcher_item(page_id, target_id.clone(), "local", defaults);
-    match store.insert_ingested_item(
+    match store.insert_ingested_item_in_container(
         &item,
+        parent_group_id,
         "local",
         &canonical_path.to_string_lossy(),
         allow_duplicate,
@@ -276,6 +282,7 @@ fn ingest_url(
     preview_cache_dir: &Path,
     preview_cache_io: &Mutex<()>,
     page_id: &str,
+    parent_group_id: Option<&str>,
     input_index: usize,
     input: IngestInput,
     allow_duplicate: bool,
@@ -290,20 +297,23 @@ fn ingest_url(
             return;
         }
     };
-    let (target_id, equivalent_on_page) =
-        match store.equivalent_url_target(page_id, normalized.as_str()) {
-            Ok(Some((target_id, on_page))) => (target_id, on_page),
-            Ok(None) => (format!("url-{}", sha256_hex(normalized.as_str())), false),
-            Err(error) => {
-                result.errors.push(finding(
-                    input_index,
-                    &input,
-                    "invalid",
-                    &format!("無法檢查網址：{error}"),
-                ));
-                return;
-            }
-        };
+    let (target_id, equivalent_on_page) = match store.equivalent_url_target_in_container(
+        page_id,
+        parent_group_id,
+        normalized.as_str(),
+    ) {
+        Ok(Some((target_id, on_page))) => (target_id, on_page),
+        Ok(None) => (format!("url-{}", sha256_hex(normalized.as_str())), false),
+        Err(error) => {
+            result.errors.push(finding(
+                input_index,
+                &input,
+                "invalid",
+                &format!("無法檢查網址：{error}"),
+            ));
+            return;
+        }
+    };
     if !allow_duplicate && equivalent_on_page {
         result.issues.push(finding(
             input_index,
@@ -335,7 +345,13 @@ fn ingest_url(
     }
 
     let item = launcher_item(page_id, target_id.clone(), "web", defaults);
-    match store.insert_ingested_item(&item, "url", normalized.as_str(), allow_duplicate) {
+    match store.insert_ingested_item_in_container(
+        &item,
+        parent_group_id,
+        "url",
+        normalized.as_str(),
+        allow_duplicate,
+    ) {
         Ok(InsertItemResult::Added(item)) => {
             if let Some(icon) = remote_icon {
                 let cache_result = preview_cache_io
@@ -589,8 +605,12 @@ fn hostname_title(url: &Url) -> String {
         .unwrap_or_else(|| url.as_str().to_string())
 }
 
-fn is_risky_path(path: &Path) -> bool {
+pub(crate) fn is_risky_path(path: &Path) -> bool {
     path.is_file() && RISKY_EXTENSIONS.contains(&extension(path).as_str())
+}
+
+pub(crate) fn is_risky_launch_path(path: &Path) -> bool {
+    !path.is_dir() && RISKY_EXTENSIONS.contains(&extension(path).as_str())
 }
 
 fn extension(path: &Path) -> String {
@@ -1088,6 +1108,7 @@ mod tests {
             &Mutex::new(()),
             IngestRequest {
                 page_id: "home".to_string(),
+                parent_group_id: None,
                 inputs: vec![
                     IngestInput {
                         input_type: "path".to_string(),
@@ -1126,6 +1147,7 @@ mod tests {
                 &Mutex::new(()),
                 IngestRequest {
                     page_id: page_id.to_string(),
+                    parent_group_id: None,
                     inputs: vec![IngestInput {
                         input_type: "path".to_string(),
                         value: path.to_string_lossy().into_owned(),
@@ -1184,6 +1206,7 @@ mod tests {
                 &Mutex::new(()),
                 IngestRequest {
                     page_id: "home".to_string(),
+                    parent_group_id: None,
                     inputs: vec![IngestInput {
                         input_type: "url".to_string(),
                         // A private literal avoids a network request while still testing URL identity.
@@ -1227,6 +1250,7 @@ mod tests {
             &Mutex::new(()),
             IngestRequest {
                 page_id: "home".to_string(),
+                parent_group_id: None,
                 inputs: vec![IngestInput {
                     input_type: "url".to_string(),
                     value: locator.to_string(),
@@ -1269,6 +1293,7 @@ mod tests {
                 &Mutex::new(()),
                 IngestRequest {
                     page_id: "home".to_string(),
+                    parent_group_id: None,
                     inputs: vec![IngestInput {
                         input_type: "path".to_string(),
                         value: path.to_string_lossy().into_owned(),

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AddPanel,
   IngestResultPanel,
@@ -10,13 +10,17 @@ import {
 } from "./components/AddPanel";
 import { CardEditDialog, type CardEditValues } from "./components/CardEditDialog";
 import { PageManagerDialog } from "./components/PageManagerDialog";
+import { GroupDetailView } from "./components/GroupDetailView";
+import { NoteEditDialog } from "./components/NoteEditDialog";
 import { UndoBar } from "./components/UndoBar";
 import { defaultState } from "./data/defaults";
+import { placesDemoState } from "./data/demo";
 import { changeSelection } from "./lib/editing";
 import { loadLegacyState } from "./lib/storage";
 import {
   clearPreviewCache,
   createGroup,
+  createNote,
   createPage,
   deleteCards,
   deletePage,
@@ -27,13 +31,18 @@ import {
   initializeWorkspace,
   isTauriRuntime,
   launchCard,
+  launchGroup,
   listenForNativeFileDrops,
   moveCards,
   movePage,
   platformErrorMessage,
+  platformErrorCode,
+  setLaunchEnabled,
   undoLast,
   ungroup,
   updateCard,
+  updateGroupResume,
+  updateNote,
   updatePage,
 } from "./lib/platform";
 import type {
@@ -92,7 +101,10 @@ function formatStorageSize(bytes: number): string {
 
 function App() {
   const [legacyState] = useState<WorkspaceState | null>(() => loadLegacyState());
-  const browserInitial = dashboardFromLegacy(legacyState ?? defaultState);
+  const browserInitial =
+    import.meta.env.DEV && new URLSearchParams(window.location.search).get("demo") === "places"
+      ? placesDemoState
+      : dashboardFromLegacy(legacyState ?? defaultState);
   const [state, setState] = useState<DashboardState>(browserInitial);
   const [activePageId, setActivePageId] = useState(browserInitial.pages[0]?.id ?? "home");
   const [query, setQuery] = useState("");
@@ -108,22 +120,33 @@ function App() {
   const [guideOpen, setGuideOpen] = useState(false);
   const [pageManagerOpen, setPageManagerOpen] = useState(false);
   const [groupContentsId, setGroupContentsId] = useState<string | null>(null);
+  const [openGroupId, setOpenGroupId] = useState<string | null>(null);
+  const [addGroupId, setAddGroupId] = useState<string | null>(null);
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [nativeDragActive, setNativeDragActive] = useState(false);
   const [dropResult, setDropResult] = useState<IngestResult | null>(null);
   const [dropPageId, setDropPageId] = useState(activePageId);
+  const [dropGroupId, setDropGroupId] = useState<string | null>(null);
   const [dropBusy, setDropBusy] = useState(false);
   const [previews, setPreviews] = useState<Record<string, LauncherPreview>>({});
   const [previewGeneration, setPreviewGeneration] = useState(0);
   const [cacheInfo, setCacheInfo] = useState<PreviewCacheInfo | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
   const [cardBeingEdited, setCardBeingEdited] = useState<DashboardCard | null>(null);
+  const [noteBeingEdited, setNoteBeingEdited] = useState<DashboardCard | null>(null);
   const [cardEditError, setCardEditError] = useState<string | null>(null);
   const [persistenceReady, setPersistenceReady] = useState(false);
   const stateRef = useRef(state);
   const activePageIdRef = useRef(activePageId);
+  const openGroupIdRef = useRef(openGroupId);
+  const groupNavigationRef = useRef<{
+    pageId: string;
+    query: string;
+    scrollY: number;
+    editing: boolean;
+  } | null>(null);
   const readyRef = useRef(false);
   const dropApprovalsRef = useRef(
     new Map<string, { allowDuplicate: boolean; allowRisky: boolean }>(),
@@ -176,6 +199,10 @@ function App() {
   }, [activePageId]);
 
   useEffect(() => {
+    openGroupIdRef.current = openGroupId;
+  }, [openGroupId]);
+
+  useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(null), 3600);
     return () => window.clearTimeout(timer);
@@ -197,11 +224,23 @@ function App() {
     const normalized = query.trim().toLocaleLowerCase("zh-TW");
     if (!normalized) return topLevelCards;
     return topLevelCards.filter(
-      (card) =>
+      (card) => {
+        const directMatch =
         card.title.toLocaleLowerCase("zh-TW").includes(normalized) ||
-        card.subtitle.toLocaleLowerCase("zh-TW").includes(normalized),
+        card.subtitle.toLocaleLowerCase("zh-TW").includes(normalized) ||
+        card.noteText.toLocaleLowerCase("zh-TW").includes(normalized) ||
+        card.resumeNote.toLocaleLowerCase("zh-TW").includes(normalized);
+        if (directMatch || card.cardType !== "group") return directMatch;
+        return pageCards.some(
+          (child) =>
+            child.parentGroupId === card.id &&
+            (child.title.toLocaleLowerCase("zh-TW").includes(normalized) ||
+              child.subtitle.toLocaleLowerCase("zh-TW").includes(normalized) ||
+              child.noteText.toLocaleLowerCase("zh-TW").includes(normalized)),
+        );
+      },
     );
-  }, [query, topLevelCards]);
+  }, [pageCards, query, topLevelCards]);
   const groups = useMemo(
     () => topLevelCards.filter((card) => card.cardType === "group"),
     [topLevelCards],
@@ -278,7 +317,11 @@ function App() {
     return ingestItems(request);
   }
 
-  async function ingestDroppedPaths(inputs: IngestInput[], pageId = activePageIdRef.current) {
+  async function ingestDroppedPaths(
+    inputs: IngestInput[],
+    pageId = activePageIdRef.current,
+    parentGroupId = openGroupIdRef.current,
+  ) {
     if (inputs.length === 0) return;
     if (!canStartNewIngest(dropBusyRef.current, Boolean(dropResultRef.current))) {
       if (dropResultRef.current) setNotice("請先關閉上一批新增結果，再拖入新的項目。");
@@ -290,11 +333,13 @@ function App() {
     try {
       const result = await runSerializedIngest({
         pageId,
+        parentGroupId,
         inputs,
         allowDuplicate: false,
         allowRisky: false,
       });
       setDropPageId(pageId);
+      setDropGroupId(parentGroupId);
       dropResultRef.current = result;
       setDropResult(result);
       if (result.added.length > 0) await refreshDashboard();
@@ -327,6 +372,7 @@ function App() {
           combined,
           await runSerializedIngest({
             pageId: dropPageId,
+            parentGroupId: dropGroupId,
             inputs: approvalGroup.inputs,
             ...approvalGroup.permissions,
           }),
@@ -382,13 +428,92 @@ function App() {
   }, []);
 
   async function launch(card: DashboardCard) {
-    if (editing || card.cardType !== "target") return;
+    if (editing) return;
+    if (card.cardType === "group") {
+      groupNavigationRef.current = {
+        pageId: activePage.id,
+        query,
+        scrollY: window.scrollY,
+        editing,
+      };
+      setOpenGroupId(card.id);
+      return;
+    }
+    if (card.cardType === "note") {
+      setNoteBeingEdited(card);
+      return;
+    }
     try {
       await launchCard(card.id);
     } catch (error) {
       setNotice(platformErrorMessage(error, "無法開啟這個項目。"));
     }
   }
+
+  function leaveGroup() {
+    const navigation = groupNavigationRef.current;
+    setOpenGroupId(null);
+    if (!navigation) return;
+    setActivePageId(navigation.pageId);
+    setQuery(navigation.query);
+    setEditing(navigation.editing);
+    window.setTimeout(() => window.scrollTo({ top: navigation.scrollY }), 0);
+  }
+
+  async function createNoteInContainer(parentGroupId: string | null) {
+    if (mutationBusy) return;
+    setMutationBusy(true);
+    try {
+      const result = await createNote(activePage.id, parentGroupId);
+      adoptDashboard(result.dashboard);
+      const note = result.dashboard.cards.find((card) => card.id === result.noteId);
+      if (note) setNoteBeingEdited(note);
+      setUndoMessage("已新增筆記");
+    } catch (error) {
+      setNotice(platformErrorMessage(error, "無法新增筆記。"));
+    } finally {
+      setMutationBusy(false);
+    }
+  }
+
+  const saveResumeNote = useCallback(async (value: string) => {
+    const groupId = openGroupIdRef.current;
+    if (!groupId) throw new Error("找不到目前群組。");
+    try {
+      adoptDashboard(await updateGroupResume(groupId, value));
+    } catch (error) {
+      setNotice(platformErrorMessage(error, "無法保存最近狀態。"));
+      throw error;
+    }
+  }, []);
+
+  async function toggleLaunchCard(card: DashboardCard, enabled: boolean) {
+    try {
+      adoptDashboard(await setLaunchEnabled(card.id, enabled));
+      setUndoMessage(enabled ? "已加入一次開啟" : "已從一次開啟移除");
+    } catch (error) {
+      if (
+        enabled &&
+        platformErrorCode(error) === "riskyConfirmationRequired" &&
+        window.confirm("開啟此卡片可能執行程式或變更系統。確定要把它加入「開啟這個地方」嗎？")
+      ) {
+        adoptDashboard(await setLaunchEnabled(card.id, true, true));
+        setUndoMessage("已確認並加入一次開啟");
+        return;
+      }
+      setNotice(platformErrorMessage(error, "無法更新一次開啟清單。"));
+      throw error;
+    }
+  }
+
+  const saveNoteText = useCallback(async (cardId: string, value: string) => {
+    try {
+      adoptDashboard(await updateNote(cardId, value));
+    } catch (error) {
+      setNotice(platformErrorMessage(error, "無法保存筆記。"));
+      throw error;
+    }
+  }, []);
 
   function selectCard(event: React.MouseEvent, cardId: string) {
     const result = changeSelection(
@@ -478,6 +603,17 @@ function App() {
         .filter((card) => card.parentGroupId === groupContentsId)
         .sort((a, b) => a.position - b.position)
     : [];
+  const openGroup = openGroupId
+    ? state.cards.find((card) => card.id === openGroupId && card.cardType === "group") ?? null
+    : null;
+  const openGroupCards = openGroup
+    ? state.cards
+        .filter((card) => card.parentGroupId === openGroup.id)
+        .sort((left, right) => left.position - right.position)
+    : [];
+  const currentNoteBeingEdited = noteBeingEdited
+    ? state.cards.find((card) => card.id === noteBeingEdited.id && card.cardType === "note") ?? null
+    : null;
   const selectedCards = topLevelCards.filter((card) => selectedIds.has(card.id));
   const canGroup = selectedCards.length >= 2 && selectedCards.every((card) => card.cardType !== "group");
   const canMoveIntoGroup = selectedCards.length > 0 && selectedCards.every((card) => card.cardType !== "group");
@@ -491,7 +627,11 @@ function App() {
             <button
               className={`workspace-button ${page.id === activePage.id ? "is-active" : ""}`}
               key={page.id}
-              onClick={() => setActivePageId(page.id)}
+              onClick={() => {
+                groupNavigationRef.current = null;
+                setOpenGroupId(null);
+                setActivePageId(page.id);
+              }}
               title={page.name}
             >
               <span aria-hidden="true">{page.symbol}</span><small>{page.name}</small>
@@ -508,7 +648,48 @@ function App() {
         </button>
       </aside>
 
-      <main className="main-content">
+      <main className={`main-content${openGroup ? " is-place-detail" : ""}`}>
+        {openGroup ? (
+          <GroupDetailView
+            group={openGroup}
+            cards={openGroupCards}
+            previews={previews}
+            editing={editing}
+            busy={mutationBusy}
+            onBack={leaveGroup}
+            onToggleEditing={() => setEditing((current) => !current)}
+            onAddTarget={() => setAddGroupId(openGroup.id)}
+            onCreateNote={() => void createNoteInContainer(openGroup.id)}
+            onOpenCard={(card) => void launch(card)}
+            onEditCard={(card) => {
+              if (card.cardType === "note") setNoteBeingEdited(card);
+              else {
+                setCardEditError(null);
+                setCardBeingEdited(card);
+              }
+            }}
+            onMoveOut={(card) => void commitMutation("已移出群組", () => moveCards({
+              cardIds: [card.id],
+              destinationPageId: openGroup.pageId,
+              destinationGroupId: null,
+              targetIndex: topLevelCards.length,
+            }))}
+            onDeleteCard={(card) => void commitMutation("已移除卡片", () => deleteCards([card.id]))}
+            onSetLaunchEnabled={toggleLaunchCard}
+            onSaveResume={saveResumeNote}
+            onLaunch={async () => {
+              try {
+                const result = await launchGroup(openGroup.id);
+                await refreshDashboard();
+                return result;
+              } catch (error) {
+                setNotice(platformErrorMessage(error, "無法開啟這個地方。"));
+                throw error;
+              }
+            }}
+          />
+        ) : (
+          <>
         <header className="topbar">
           <div><p className="eyebrow">PERSONAL WORKSPACE</p><h1>{activePage.name}</h1></div>
           <div className="topbar-actions">
@@ -518,6 +699,7 @@ function App() {
               setSelectedIds(new Set());
               setSelectionAnchor(null);
             }}>{editing ? "完成" : "編輯"}</button>
+            <button className="button secondary" disabled={!persistenceReady || mutationBusy} onClick={() => void createNoteInContainer(null)}>＋ 筆記</button>
             <button className="button primary" disabled={!persistenceReady || mutationBusy} onClick={() => setDialogOpen(true)}>＋ 新增</button>
           </div>
         </header>
@@ -627,6 +809,8 @@ function App() {
             <div className="empty-state"><span>＋</span><h2>這個頁面還沒有項目</h2><p>新增桌面應用程式、網頁或資料夾，建立自己的入口。</p><button className="button primary" disabled={!persistenceReady} onClick={() => setDialogOpen(true)}>新增第一個項目</button></div>
           )}
         </section>
+          </>
+        )}
       </main>
 
       {notice && <div className="toast" role="status">{notice}</div>}
@@ -636,14 +820,27 @@ function App() {
         void undoLast().then((dashboard) => { adoptDashboard(dashboard); setUndoMessage(null); }).catch((error) => setNotice(platformErrorMessage(error, "無法復原。"))).finally(() => setUndoBusy(false));
       }} />}
 
-      {nativeDragActive && <div className="native-drop-overlay" role="status"><div className="native-drop-target"><span aria-hidden="true">＋</span><strong>放開即可加入目前頁面</strong><small>可同時加入多個檔案、捷徑或資料夾</small></div></div>}
+      {nativeDragActive && <div className="native-drop-overlay" role="status"><div className="native-drop-target"><span aria-hidden="true">＋</span><strong>放開即可加入{openGroup ? "這個地方" : "目前頁面"}</strong><small>可同時加入多個檔案、捷徑或資料夾</small></div></div>}
       {dropResult && <div className="floating-ingest-result"><IngestResultPanel result={dropResult} busy={dropBusy} onDismiss={() => { dropApprovalsRef.current.clear(); dropResultRef.current = null; setDropResult(null); }} onRetryDuplicates={() => void retryDroppedProblems(dropResult.issues.filter((issue) => issue.code === "duplicate"), "duplicate")} onConfirmRisky={() => void retryDroppedProblems(dropResult.issues.filter((issue) => issue.code === "risky"), "risky")} /></div>}
 
-      {settingsOpen && <div className="dialog-backdrop" onMouseDown={() => setSettingsOpen(false)}><section className="dialog settings-dialog" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">SETTINGS</p><h2>設定</h2></div><button className="icon-button" onClick={() => setSettingsOpen(false)}>×</button></div><div className="settings-list"><button className="settings-row" onClick={() => { setSettingsOpen(false); setGuideOpen(true); }}><span className="settings-row-icon" aria-hidden="true">?</span><span><strong>使用介紹</strong><small>查看拖放、新增與整理項目的方法</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><div className="settings-row cache-row"><span className="settings-row-icon" aria-hidden="true">▧</span><span><strong>縮圖儲存區</strong><small>{cacheInfo ? `${cacheInfo.entries} 個預覽 · ${formatStorageSize(cacheInfo.bytes)}` : "正在讀取使用量…"}</small></span><button className="cache-clear-button" disabled={cacheBusy || !cacheInfo || cacheInfo.entries === 0} onClick={() => void clearStoredPreviews()}>{cacheBusy ? "清除中" : "清除"}</button></div></div><footer className="settings-footer"><span>個人工作台</span><span>版本 0.6.0</span></footer></section></div>}
+      {settingsOpen && <div className="dialog-backdrop" onMouseDown={() => setSettingsOpen(false)}><section className="dialog settings-dialog" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">SETTINGS</p><h2>設定</h2></div><button className="icon-button" onClick={() => setSettingsOpen(false)}>×</button></div><div className="settings-list"><button className="settings-row" onClick={() => { setSettingsOpen(false); setGuideOpen(true); }}><span className="settings-row-icon" aria-hidden="true">?</span><span><strong>使用介紹</strong><small>查看拖放、新增與整理項目的方法</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><div className="settings-row cache-row"><span className="settings-row-icon" aria-hidden="true">▧</span><span><strong>縮圖儲存區</strong><small>{cacheInfo ? `${cacheInfo.entries} 個預覽 · ${formatStorageSize(cacheInfo.bytes)}` : "正在讀取使用量…"}</small></span><button className="cache-clear-button" disabled={cacheBusy || !cacheInfo || cacheInfo.entries === 0} onClick={() => void clearStoredPreviews()}>{cacheBusy ? "清除中" : "清除"}</button></div></div><footer className="settings-footer"><span>個人工作台</span><span>版本 0.7.0</span></footer></section></div>}
 
       {guideOpen && <div className="dialog-backdrop" onMouseDown={() => setGuideOpen(false)}><section className="dialog guide-dialog" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">QUICK GUIDE</p><h2>使用介紹</h2></div><button className="icon-button" onClick={() => setGuideOpen(false)}>×</button></div><div className="guide-hero"><span aria-hidden="true">＋</span><div><strong>直接拖進來即可新增</strong><p>支援 EXE、捷徑、資料夾與各種檔案，也能一次拖入多個項目。</p></div></div><div className="guide-steps"><article><span>01</span><strong>選擇頁面</strong><p>新增的內容會放進目前頁面；編輯模式可以新增、重新命名與排序頁面。</p></article><article><span>02</span><strong>多選整理</strong><p>在編輯模式使用 Ctrl 或 Shift 多選卡片，再建立群組或移到其他頁面。</p></article><article><span>03</span><strong>放心調整</strong><p>排序、調整大小、刪除與群組操作都能從畫面下方復原。</p></article></div><div className="dialog-actions"><button className="button primary" onClick={() => setGuideOpen(false)}>知道了</button></div></section></div>}
 
       {dialogOpen && <AddPanel pageId={activePage.id} performIngest={runSerializedIngest} onAdded={() => void refreshDashboard()} onClose={() => setDialogOpen(false)} />}
+      {addGroupId && <AddPanel pageId={activePage.id} parentGroupId={addGroupId} performIngest={runSerializedIngest} onAdded={() => void refreshDashboard()} onClose={() => setAddGroupId(null)} />}
+      {currentNoteBeingEdited && <NoteEditDialog key={currentNoteBeingEdited.id} note={currentNoteBeingEdited} busy={mutationBusy} onSaveText={(value) => saveNoteText(currentNoteBeingEdited.id, value)} onSaveAppearance={async (title, size) => {
+        setMutationBusy(true);
+        try {
+          adoptDashboard(await updateCard({ cardId: currentNoteBeingEdited.id, title, size }));
+          setUndoMessage("已更新筆記");
+        } catch (error) {
+          setNotice(platformErrorMessage(error, "無法更新筆記。"));
+          throw error;
+        } finally {
+          setMutationBusy(false);
+        }
+      }} onClose={() => setNoteBeingEdited(null)} />}
       {cardBeingEdited && <CardEditDialog key={cardBeingEdited.id} item={cardBeingEdited} busy={mutationBusy} error={cardEditError} onClose={() => { if (!mutationBusy) setCardBeingEdited(null); }} onSave={(values) => void persistCardAppearance(cardBeingEdited, values, false)} onReset={cardBeingEdited.cardType === "target" ? () => void persistCardAppearance(cardBeingEdited, { title: cardBeingEdited.title, subtitle: cardBeingEdited.subtitle, tone: cardBeingEdited.tone, size: cardBeingEdited.size }, true) : undefined} />}
       {pageManagerOpen && <PageManagerDialog pages={state.pages} busy={mutationBusy} onClose={() => setPageManagerOpen(false)} onCreate={() => void commitMutation("已新增頁面", createPage)} onUpdate={(pageId, name, symbol) => void commitMutation("已更新頁面", () => updatePage(pageId, name, symbol))} onMove={(pageId, direction) => void commitMutation("已調整頁面順序", () => movePage(pageId, direction))} onDelete={(page: Page) => {
         const count = state.cards.filter((card) => card.pageId === page.id).length;

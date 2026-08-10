@@ -44,6 +44,15 @@ pub struct DashboardState {
     pub cards: Vec<DashboardCard>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct GroupLaunchItem {
+    pub card_id: String,
+    pub title: String,
+    pub target_kind: String,
+    pub locator: String,
+    pub launch_enabled: bool,
+}
+
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CardMutation {
@@ -346,6 +355,201 @@ impl WorkspaceStore {
         })
     }
 
+    pub fn create_note(
+        &self,
+        page_id: &str,
+        parent_group_id: Option<&str>,
+    ) -> Result<(DashboardState, String), String> {
+        let note_id = unique_id("note");
+        let page_id = page_id.to_string();
+        let parent_group_id = parent_group_id.map(str::to_string);
+        let result = self.mutate_with_undo(|transaction| {
+            ensure_page(transaction, &page_id)?;
+            if let Some(group_id) = parent_group_id.as_deref() {
+                ensure_top_level_group(transaction, group_id, &page_id)?;
+            }
+            let position: i64 = transaction
+                .query_row(
+                    "SELECT COALESCE(MAX(position), -1) + 1 FROM cards
+                     WHERE page_id = ?1 AND parent_group_id IS ?2",
+                    params![page_id, parent_group_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| format!("無法計算筆記位置：{error}"))?;
+            transaction
+                .execute(
+                    "INSERT INTO cards(
+                         id, page_id, parent_group_id, card_type, target_id,
+                         title, subtitle, kind, symbol, tone, size, position,
+                         note_text, resume_note, launch_enabled, last_opened_at
+                     ) VALUES(?1, ?2, ?3, 'note', NULL,
+                              '新筆記', '純文字筆記', 'note', '≡', 'amber', 'wide', ?4,
+                              '', '', 0, NULL)",
+                    params![note_id, page_id, parent_group_id, position],
+                )
+                .map_err(|error| format!("無法新增筆記：{error}"))?;
+            Ok(())
+        })?;
+        Ok((result, note_id))
+    }
+
+    pub fn update_note_text(
+        &self,
+        card_id: &str,
+        note_text: &str,
+    ) -> Result<DashboardState, String> {
+        if note_text.chars().count() > 10_000 {
+            return Err("筆記內容不可超過 10,000 個字。".to_string());
+        }
+        self.mutate_content(|transaction| {
+            let changed = transaction
+                .execute(
+                    "UPDATE cards SET note_text = ?2 WHERE id = ?1 AND card_type = 'note'",
+                    params![card_id, note_text],
+                )
+                .map_err(|error| format!("無法保存筆記：{error}"))?;
+            if changed == 0 {
+                return Err("找不到要保存的筆記。".to_string());
+            }
+            Ok(())
+        })
+    }
+
+    pub fn update_group_resume_note(
+        &self,
+        group_id: &str,
+        resume_note: &str,
+    ) -> Result<DashboardState, String> {
+        if resume_note.chars().count() > 2_000 {
+            return Err("最近狀態不可超過 2,000 個字。".to_string());
+        }
+        self.mutate_content(|transaction| {
+            let changed = transaction
+                .execute(
+                    "UPDATE cards SET resume_note = ?2
+                     WHERE id = ?1 AND card_type = 'group' AND parent_group_id IS NULL",
+                    params![group_id, resume_note],
+                )
+                .map_err(|error| format!("無法保存最近狀態：{error}"))?;
+            if changed == 0 {
+                return Err("找不到要保存的群組。".to_string());
+            }
+            Ok(())
+        })
+    }
+
+    pub fn set_launch_enabled(
+        &self,
+        card_id: &str,
+        enabled: bool,
+        allow_risky: bool,
+    ) -> Result<DashboardState, String> {
+        self.mutate_with_undo(|transaction| {
+            let candidate = transaction
+                .query_row(
+                    "SELECT c.card_type, c.parent_group_id, t.kind, t.locator
+                     FROM cards c LEFT JOIN targets t ON t.id = c.target_id
+                     WHERE c.id = ?1",
+                    [card_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, Option<String>>(3)?,
+                        ))
+                    },
+                )
+                .optional()
+                .map_err(|error| format!("無法讀取啟動項目：{error}"))?
+                .ok_or_else(|| "找不到要設定的卡片。".to_string())?;
+            if candidate.0 != "target" || candidate.1.is_none() {
+                return Err("只有群組內的可開啟卡片能加入一次開啟。".to_string());
+            }
+            if enabled
+                && !allow_risky
+                && candidate.2.as_deref() == Some("local")
+                && candidate.3.as_deref().is_some_and(|locator| {
+                    crate::ingest::is_risky_launch_path(std::path::Path::new(locator))
+                })
+            {
+                return Err("riskyConfirmationRequired".to_string());
+            }
+            transaction
+                .execute(
+                    "UPDATE cards SET launch_enabled = ?2 WHERE id = ?1",
+                    params![card_id, enabled],
+                )
+                .map_err(|error| format!("無法更新一次開啟清單：{error}"))?;
+            Ok(())
+        })
+    }
+
+    pub fn group_launch_items(&self, group_id: &str) -> Result<Vec<GroupLaunchItem>, String> {
+        let connection = self.lock()?;
+        let group_exists: bool = connection
+            .query_row(
+                "SELECT EXISTS(
+                     SELECT 1 FROM cards
+                     WHERE id = ?1 AND card_type = 'group' AND parent_group_id IS NULL
+                 )",
+                [group_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| format!("無法確認群組：{error}"))?;
+        if !group_exists {
+            return Err("找不到要開啟的群組。".to_string());
+        }
+        let mut statement = connection
+            .prepare(
+                "SELECT c.id, c.title, t.kind, t.locator, c.launch_enabled
+                 FROM cards c
+                 JOIN targets t ON t.id = c.target_id
+                 WHERE c.parent_group_id = ?1 AND c.card_type = 'target'
+                 ORDER BY c.position, c.id",
+            )
+            .map_err(|error| format!("無法準備群組啟動清單：{error}"))?;
+        let items = statement
+            .query_map([group_id], |row| {
+                Ok(GroupLaunchItem {
+                    card_id: row.get(0)?,
+                    title: row.get(1)?,
+                    target_kind: row.get(2)?,
+                    locator: row.get(3)?,
+                    launch_enabled: row.get(4)?,
+                })
+            })
+            .map_err(|error| format!("無法讀取群組啟動清單：{error}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("無法整理群組啟動清單：{error}"))?;
+        Ok(items)
+    }
+
+    pub fn mark_group_opened(&self, group_id: &str) -> Result<(), String> {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| format!("無法建立使用時間：{error}"))?
+            .as_secs()
+            .to_string();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| format!("無法開始群組狀態交易：{error}"))?;
+        let changed = transaction
+            .execute(
+                "UPDATE cards SET last_opened_at = ?2
+                 WHERE id = ?1 AND card_type = 'group' AND parent_group_id IS NULL",
+                params![group_id, timestamp],
+            )
+            .map_err(|error| format!("無法記錄群組使用時間：{error}"))?;
+        if changed == 0 {
+            return Err("找不到要記錄的群組。".to_string());
+        }
+        transaction
+            .commit()
+            .map_err(|error| format!("無法完成群組狀態交易：{error}"))
+    }
+
     pub fn create_page(&self) -> Result<DashboardState, String> {
         let page_id = unique_id("page");
         self.mutate_with_undo(|transaction| {
@@ -504,6 +708,21 @@ impl WorkspaceStore {
         }
         Ok(after)
     }
+
+    fn mutate_content<F>(&self, operation: F) -> Result<DashboardState, String>
+    where
+        F: FnOnce(&Transaction<'_>) -> Result<(), String>,
+    {
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| format!("無法開始內容保存交易：{error}"))?;
+        operation(&transaction)?;
+        transaction
+            .commit()
+            .map_err(|error| format!("無法完成內容保存：{error}"))?;
+        load_dashboard(&connection)
+    }
 }
 
 fn validate_card_mutation(update: &CardMutation) -> Result<(), String> {
@@ -548,6 +767,27 @@ fn ensure_page(transaction: &Transaction<'_>, page_id: &str) -> Result<(), Strin
     exists
         .then_some(())
         .ok_or_else(|| "找不到目標頁面。".to_string())
+}
+
+fn ensure_top_level_group(
+    transaction: &Transaction<'_>,
+    group_id: &str,
+    page_id: &str,
+) -> Result<(), String> {
+    let exists: bool = transaction
+        .query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM cards
+                 WHERE id = ?1 AND page_id = ?2 AND card_type = 'group'
+                   AND parent_group_id IS NULL
+             )",
+            params![group_id, page_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("無法確認群組：{error}"))?;
+    exists
+        .then_some(())
+        .ok_or_else(|| "找不到目標群組。".to_string())
 }
 
 fn load_dashboard(connection: &Connection) -> Result<DashboardState, String> {
@@ -903,5 +1143,159 @@ mod tests {
         let store = seeded_store();
         assert!(store.delete_page("home").is_err());
         assert_eq!(store.get_dashboard().unwrap().pages.len(), 1);
+    }
+
+    #[test]
+    fn note_can_live_in_group_and_content_limits_are_enforced() {
+        let store = seeded_store();
+        let (_, group_id) = store
+            .create_group("home", &["card-one".to_string(), "card-two".to_string()])
+            .expect("create group");
+        let (dashboard, note_id) = store
+            .create_note("home", Some(&group_id))
+            .expect("create note");
+        let note = dashboard
+            .cards
+            .iter()
+            .find(|card| card.id == note_id)
+            .expect("note exists");
+        assert_eq!(note.card_type, "note");
+        assert_eq!(note.parent_group_id.as_deref(), Some(group_id.as_str()));
+        assert!(!note.launch_enabled);
+
+        let saved = store
+            .update_note_text(&note_id, "角色移動完成")
+            .expect("save note");
+        assert_eq!(
+            saved
+                .cards
+                .iter()
+                .find(|card| card.id == note_id)
+                .unwrap()
+                .note_text,
+            "角色移動完成"
+        );
+        assert!(store
+            .update_note_text(&note_id, &"界".repeat(10_001))
+            .is_err());
+    }
+
+    #[test]
+    fn resume_note_is_plain_text_bounded_and_persisted() {
+        let store = seeded_store();
+        let (_, group_id) = store
+            .create_group("home", &["card-one".to_string(), "card-two".to_string()])
+            .expect("create group");
+        let saved = store
+            .update_group_resume_note(&group_id, "上次做到角色移動")
+            .expect("save resume");
+        assert_eq!(
+            saved
+                .cards
+                .iter()
+                .find(|card| card.id == group_id)
+                .unwrap()
+                .resume_note,
+            "上次做到角色移動"
+        );
+        assert!(store
+            .update_group_resume_note(&group_id, &"界".repeat(2_001))
+            .is_err());
+    }
+
+    #[test]
+    fn launch_set_only_accepts_group_targets_and_risky_files_need_confirmation() {
+        let store = seeded_store();
+        let risky = LauncherItem {
+            id: "card-risky".to_string(),
+            workspace_id: "home".to_string(),
+            title: "Risky".to_string(),
+            subtitle: "Windows script".to_string(),
+            kind: "local".to_string(),
+            target: "target-risky".to_string(),
+            symbol: "!".to_string(),
+            tone: "rose".to_string(),
+            size: "square".to_string(),
+        };
+        store
+            .insert_ingested_item(&risky, "local", "C:\\Tools\\change.ps1", false)
+            .expect("insert risky");
+        assert!(store.set_launch_enabled("card-one", true, false).is_err());
+
+        let (_, group_id) = store
+            .create_group("home", &["card-one".to_string(), "card-risky".to_string()])
+            .expect("create group");
+        assert_eq!(
+            store.set_launch_enabled("card-risky", true, false),
+            Err("riskyConfirmationRequired".to_string())
+        );
+        let dashboard = store
+            .set_launch_enabled("card-risky", true, true)
+            .expect("confirm risky");
+        assert!(
+            dashboard
+                .cards
+                .iter()
+                .find(|card| card.id == "card-risky")
+                .unwrap()
+                .launch_enabled
+        );
+        let items = store.group_launch_items(&group_id).expect("launch items");
+        assert_eq!(items.len(), 2);
+        assert!(!items[0].launch_enabled);
+        assert!(items[1].launch_enabled);
+    }
+
+    #[test]
+    fn ingest_duplicates_are_scoped_to_the_group_container() {
+        let store = seeded_store();
+        let (_, group_id) = store
+            .create_group("home", &["card-one".to_string(), "card-two".to_string()])
+            .expect("create group");
+        let item = LauncherItem {
+            id: "group-extra".to_string(),
+            workspace_id: "home".to_string(),
+            title: "Extra".to_string(),
+            subtitle: "file".to_string(),
+            kind: "local".to_string(),
+            target: "target-extra".to_string(),
+            symbol: "◆".to_string(),
+            tone: "cyan".to_string(),
+            size: "square".to_string(),
+        };
+        assert!(matches!(
+            store
+                .insert_ingested_item_in_container(
+                    &item,
+                    Some(&group_id),
+                    "local",
+                    "C:\\extra.exe",
+                    false,
+                )
+                .expect("insert in group"),
+            InsertItemResult::Added(_)
+        ));
+        let duplicate = LauncherItem {
+            id: "group-extra-copy".to_string(),
+            ..item.clone()
+        };
+        assert_eq!(
+            store
+                .insert_ingested_item_in_container(
+                    &duplicate,
+                    Some(&group_id),
+                    "local",
+                    "C:\\extra.exe",
+                    false,
+                )
+                .expect("duplicate check"),
+            InsertItemResult::Duplicate
+        );
+        assert!(matches!(
+            store
+                .insert_ingested_item(&duplicate, "local", "C:\\extra.exe", false)
+                .expect("top level is separate"),
+            InsertItemResult::Added(_)
+        ));
     }
 }

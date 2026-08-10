@@ -1,6 +1,6 @@
 [package]
 name = "personal-workspace"
-version = "0.6.0"
+version = "0.7.0"
 description = "Windows 個人工作台"
 authors = ["JSrad"]
 edition = "2021"
