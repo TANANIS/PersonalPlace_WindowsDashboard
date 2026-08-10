@@ -1,6 +1,6 @@
 # Personal Place
 
-本機優先的 Windows 個人首頁。目前完成 0.9.0「公開版品質」工程里程碑；因尚未簽章，產物仍標示為未公開測試版。
+本機優先的 Windows 個人首頁。目前完成 1.0.0 核心產品範圍；因尚未簽章與完成所有公開環境矩陣，產物仍標示為未公開測試版。
 
 隱私、資料與發布資訊：
 
@@ -8,6 +8,7 @@
 - [資料與備份](./DATA_AND_BACKUP.md)
 - [第三方套件授權](./THIRD_PARTY_LICENSES.md)
 - [發布檢查表](./RELEASE_CHECKLIST.md)
+- [1.0 驗收狀態](./RELEASE_STATUS.md)
 
 ## 目前功能
 
@@ -76,7 +77,7 @@ pnpm test
 pnpm tauri dev
 ```
 
-## 0.9.0 驗證
+## 1.0.0 驗證
 
 ```powershell
 pnpm build
@@ -85,7 +86,7 @@ cargo clippy --manifest-path .\src-tauri\Cargo.toml --all-targets
 pnpm tauri build
 ```
 
-## 1.0 發布門檻
+## 公開發布前仍需完成
 
 - 全新安裝與 0.4.0 實際資料升級情境
 - 乾淨環境備份還原、壞路徑修復與完整鍵盤流程

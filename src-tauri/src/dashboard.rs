@@ -1021,8 +1021,9 @@ mod tests {
     use crate::storage::{InsertItemResult, LauncherItem, WorkspaceStore};
     use std::{
         collections::HashMap,
+        fs,
         path::Path,
-        time::{Duration, Instant},
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
     fn seeded_store() -> WorkspaceStore {
@@ -1340,5 +1341,148 @@ mod tests {
                 .expect("top level is separate"),
             InsertItemResult::Added(_)
         ));
+    }
+
+    #[test]
+    fn unity_learning_place_survives_reopen_with_launch_set_and_resume() {
+        let root = std::env::temp_dir().join(format!(
+            "personal-place-unity-scenario-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create scenario directory");
+        let database = root.join("personal-place.db");
+        let group_id;
+
+        {
+            let store = WorkspaceStore::open(&database).expect("open scenario database");
+            store
+                .initialize(
+                    None,
+                    &HashMap::new(),
+                    &root.join("missing-registry.json"),
+                    &root.join("backups"),
+                )
+                .expect("initialize scenario database");
+
+            let resources = [
+                (
+                    "unity",
+                    "Unity",
+                    "local",
+                    r"C:\Program Files\Unity\Unity.exe",
+                ),
+                (
+                    "vscode",
+                    "VS Code",
+                    "local",
+                    r"C:\Program Files\VS Code\Code.exe",
+                ),
+                (
+                    "course",
+                    "課程網站",
+                    "url",
+                    "https://example.com/unity-course",
+                ),
+                (
+                    "github",
+                    "GitHub",
+                    "url",
+                    "https://github.com/example/unity-study",
+                ),
+                ("project", "專案資料夾", "local", r"C:\Projects\UnityStudy"),
+            ];
+            let mut card_ids = Vec::new();
+            for (position, (id, title, target_kind, locator)) in resources.iter().enumerate() {
+                let card_id = format!("unity-{id}");
+                let item = LauncherItem {
+                    id: card_id.clone(),
+                    workspace_id: "home".to_string(),
+                    title: (*title).to_string(),
+                    subtitle: if *target_kind == "url" {
+                        "網站入口".to_string()
+                    } else {
+                        "本機入口".to_string()
+                    },
+                    kind: if *target_kind == "url" {
+                        "web"
+                    } else {
+                        "local"
+                    }
+                    .to_string(),
+                    target: format!("unity-target-{position}"),
+                    symbol: if *target_kind == "url" { "↗" } else { "◆" }.to_string(),
+                    tone: "violet".to_string(),
+                    size: "square".to_string(),
+                };
+                assert!(matches!(
+                    store
+                        .insert_ingested_item(&item, target_kind, locator, false)
+                        .expect("insert Unity scenario resource"),
+                    InsertItemResult::Added(_)
+                ));
+                card_ids.push(card_id);
+            }
+
+            group_id = store
+                .create_group("home", &card_ids)
+                .expect("create Unity learning place")
+                .1;
+            store
+                .update_dashboard_card(
+                    &group_id,
+                    super::CardMutation {
+                        title: Some("Unity 學習".to_string()),
+                        ..Default::default()
+                    },
+                )
+                .expect("name Unity learning place");
+            for card_id in [&card_ids[0], &card_ids[1], &card_ids[4]] {
+                store
+                    .set_launch_enabled(card_id, true, false)
+                    .expect("enable launch item");
+            }
+            store
+                .update_group_resume_note(&group_id, "上次做到角色移動")
+                .expect("save resume note");
+        }
+
+        let reopened = WorkspaceStore::open(&database).expect("reopen scenario database");
+        let dashboard = reopened.get_dashboard().expect("load reopened scenario");
+        let group = dashboard
+            .cards
+            .iter()
+            .find(|card| card.id == group_id)
+            .expect("find Unity learning place");
+        assert_eq!(group.title, "Unity 學習");
+        assert_eq!(group.resume_note, "上次做到角色移動");
+        let children = dashboard
+            .cards
+            .iter()
+            .filter(|card| card.parent_group_id.as_deref() == Some(&group_id))
+            .collect::<Vec<_>>();
+        assert_eq!(children.len(), 5);
+        assert_eq!(
+            children
+                .iter()
+                .map(|card| card.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Unity", "VS Code", "課程網站", "GitHub", "專案資料夾"]
+        );
+        assert_eq!(
+            children.iter().filter(|card| card.launch_enabled).count(),
+            3
+        );
+        assert!(children[0].launch_enabled);
+        assert!(children[1].launch_enabled);
+        assert!(!children[2].launch_enabled);
+        assert!(!children[3].launch_enabled);
+        assert!(children[4].launch_enabled);
+
+        drop(reopened);
+        fs::remove_dir_all(root).expect("remove scenario directory");
     }
 }

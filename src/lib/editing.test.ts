@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changeSelection } from "./editing";
+import { changeSelection, keyboardReorderTarget } from "./editing";
 
 const ids = ["one", "two", "three", "four"];
 
@@ -31,5 +31,15 @@ describe("changeSelection", () => {
       range: true,
     });
     expect([...result.selected]).toEqual(["two", "three", "four"]);
+  });
+
+  it("將方向鍵轉成有邊界的卡片排序位置", () => {
+    expect(keyboardReorderTarget(1, 4, "ArrowLeft")).toBe(0);
+    expect(keyboardReorderTarget(1, 4, "ArrowUp")).toBe(0);
+    expect(keyboardReorderTarget(1, 4, "ArrowRight")).toBe(2);
+    expect(keyboardReorderTarget(1, 4, "ArrowDown")).toBe(2);
+    expect(keyboardReorderTarget(0, 4, "ArrowLeft")).toBeNull();
+    expect(keyboardReorderTarget(3, 4, "ArrowRight")).toBeNull();
+    expect(keyboardReorderTarget(1, 4, "Enter")).toBeNull();
   });
 });
