@@ -1,6 +1,6 @@
 # Personal Place
 
-本機優先的 Windows 個人首頁。目前完成 0.7.0「讓 Group 成為真正的 Place」里程碑。
+本機優先的 Windows 個人首頁。目前完成 0.8.0「搜尋、修復、備份與還原」里程碑。
 
 ## 目前功能
 
@@ -44,6 +44,10 @@
 - 啟動結果逐項區分成功、失敗、遺失與略過，並保留到使用者自行關閉
 - Group 提供最多 2,000 字的「上次做到這裡」，Note 提供最多 10,000 字純文字內容
 - Resume Note 與 Note 內容採 500 ms debounce 自動保存，並顯示保存狀態
+- Ctrl＋K 可跨所有頁面、地方、卡片、副標題、筆記與最近狀態搜尋
+- 只檢查目前可見頁面或地方的本機目標；遺失項目可重新定位並保留卡片身分與一次開啟設定
+- `.personal-place` 備份包含頁面、卡片、地方、Target、筆記與 Launch Set，還原前會建立 SQLite 一致性安全備份
+- 資料庫無法開啟時不建立空白資料，改顯示 Recovery 畫面並保留原始損壞檔案
 
 ## 開發
 
@@ -59,7 +63,7 @@ pnpm test
 pnpm tauri dev
 ```
 
-## 0.7.0 驗證
+## 0.8.0 驗證
 
 ```powershell
 pnpm build
@@ -68,9 +72,9 @@ cargo clippy --manifest-path .\src-tauri\Cargo.toml --all-targets
 pnpm tauri build
 ```
 
-## 下一階段（0.8.0）
+## 下一階段（0.9.0）
 
-- 跨所有 Page 與 Group 的全域搜尋
-- 壞掉本機目標狀態與重新定位
-- `.personal-place` 版本化備份與安全還原
-- 資料庫無法開啟時的 Recovery 畫面
+- 完整鍵盤操作、Dialog 焦點管理與 High Contrast
+- Windows DPI、多螢幕與最小視窗驗收
+- 預覽改為受控資源 URL、Lazy loading 與 200 卡效能驗收
+- Personal Place 品牌與字串集中管理、公開版隱私與授權文件

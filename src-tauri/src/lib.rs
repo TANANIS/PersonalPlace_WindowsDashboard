@@ -5,12 +5,15 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
-use tauri::{Manager, State};
+use tauri::{AppHandle, Manager, State};
 
+mod backup;
 mod dashboard;
 mod ingest;
 mod launcher;
 mod preview;
+mod recovery;
+mod reliability;
 mod storage;
 
 use dashboard::{CardMutation, DashboardState};
@@ -30,11 +33,15 @@ struct RegistryDocument {
 
 struct PersonalPlaceRuntime {
     store: Arc<WorkspaceStore>,
+    database_error: Option<String>,
+    database_path: PathBuf,
     legacy_registry_path: PathBuf,
     legacy_targets: Arc<HashMap<String, PathBuf>>,
     legacy_backup_dir: PathBuf,
     preview_cache_dir: PathBuf,
     preview_cache_io: Arc<Mutex<()>>,
+    safety_backup_dir: PathBuf,
+    recovery_backup_dir: PathBuf,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -162,6 +169,41 @@ struct SetLaunchEnabledRequest {
     allow_risky: bool,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchRequest {
+    query: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CheckTargetsRequest {
+    page_id: String,
+    parent_group_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RelinkTargetRequest {
+    card_id: String,
+    new_path: String,
+    #[serde(default)]
+    allow_risky: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupPathRequest {
+    path: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecoveryInfo {
+    technical_error: String,
+    backup_folder: String,
+}
+
 fn load_registry(file_path: &Path) -> RegistryDocument {
     fs::read_to_string(file_path)
         .ok()
@@ -173,12 +215,18 @@ fn load_registry(file_path: &Path) -> RegistryDocument {
 async fn initialize_workspace(
     legacy_state: Option<WorkspaceState>,
     runtime: State<'_, PersonalPlaceRuntime>,
-) -> Result<DashboardState, String> {
+) -> Result<DashboardState, CommandError> {
+    if let Some(error) = runtime.database_error.as_deref() {
+        return Err(CommandError::new(
+            "databaseUnavailable",
+            format!("Personal Place 無法開啟目前的資料庫：{error}"),
+        ));
+    }
     let store = Arc::clone(&runtime.store);
     let legacy_targets = Arc::clone(&runtime.legacy_targets);
     let legacy_registry_path = runtime.legacy_registry_path.clone();
     let legacy_backup_dir = runtime.legacy_backup_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         store.initialize(
             legacy_state,
             &legacy_targets,
@@ -188,7 +236,66 @@ async fn initialize_workspace(
         store.get_dashboard()
     })
     .await
-    .map_err(|error| format!("初始資料背景工作失敗：{error}"))?
+    .map_err(|error| {
+        CommandError::new("backgroundFailed", format!("初始資料背景工作失敗：{error}"))
+    })?;
+    result.map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn get_recovery_info(
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<RecoveryInfo, CommandError> {
+    let technical_error = runtime
+        .database_error
+        .clone()
+        .ok_or_else(|| CommandError::new("recoveryUnavailable", "目前不需要資料庫復原。"))?;
+    Ok(RecoveryInfo {
+        technical_error,
+        backup_folder: runtime.recovery_backup_dir.to_string_lossy().into_owned(),
+    })
+}
+
+#[tauri::command]
+fn open_recovery_backup_folder(
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<(), CommandError> {
+    fs::create_dir_all(&runtime.recovery_backup_dir)
+        .map_err(|error| CommandError::storage(format!("無法建立備份資料夾：{error}")))?;
+    open::that(&runtime.recovery_backup_dir)
+        .map_err(|error| CommandError::new("openFailed", format!("無法開啟備份資料夾：{error}")))
+}
+
+#[tauri::command]
+async fn recover_database(
+    request: BackupPathRequest,
+    app: AppHandle,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<(), CommandError> {
+    if runtime.database_error.is_none() {
+        return Err(CommandError::new(
+            "recoveryUnavailable",
+            "目前資料庫可以正常使用，不需要執行復原。",
+        ));
+    }
+    let database_path = runtime.database_path.clone();
+    let recovery_backup_dir = runtime.recovery_backup_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        recovery::replace_database_from_backup(
+            Path::new(&request.path),
+            &database_path,
+            &recovery_backup_dir,
+        )
+    })
+    .await
+    .map_err(|error| {
+        CommandError::new(
+            "backgroundFailed",
+            format!("復原資料庫背景工作失敗：{error}"),
+        )
+    })?
+    .map_err(CommandError::storage)?;
+    app.restart()
 }
 
 #[tauri::command]
@@ -421,6 +528,122 @@ async fn launch_group(
 }
 
 #[tauri::command]
+async fn search_dashboard(
+    request: SearchRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<Vec<reliability::SearchResult>, CommandError> {
+    let store = Arc::clone(&runtime.store);
+    tauri::async_runtime::spawn_blocking(move || {
+        reliability::search_dashboard(&store, &request.query)
+    })
+    .await
+    .map_err(|error| CommandError::new("backgroundFailed", format!("搜尋背景工作失敗：{error}")))?
+    .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+async fn check_targets(
+    request: CheckTargetsRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<Vec<reliability::TargetStatus>, CommandError> {
+    let store = Arc::clone(&runtime.store);
+    tauri::async_runtime::spawn_blocking(move || {
+        reliability::check_targets(&store, &request.page_id, request.parent_group_id.as_deref())
+    })
+    .await
+    .map_err(|error| {
+        CommandError::new(
+            "backgroundFailed",
+            format!("目標狀態檢查背景工作失敗：{error}"),
+        )
+    })?
+    .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+async fn relink_target(
+    request: RelinkTargetRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<DashboardState, CommandError> {
+    let store = Arc::clone(&runtime.store);
+    let cache_dir = runtime.preview_cache_dir.clone();
+    let cache_io = Arc::clone(&runtime.preview_cache_io);
+    tauri::async_runtime::spawn_blocking(move || {
+        let relinked = reliability::relink_target(
+            &store,
+            &request.card_id,
+            Path::new(&request.new_path),
+            request.allow_risky,
+        )?;
+        let _guard = cache_io
+            .lock()
+            .map_err(|_| "縮圖儲存區暫時無法使用。".to_string())?;
+        preview::remove_cached_preview(
+            &cache_dir,
+            &ingest::preview_cache_key(&relinked.old_target_id),
+        )?;
+        preview::remove_cached_preview(
+            &cache_dir,
+            &ingest::preview_cache_key(&relinked.new_target_id),
+        )?;
+        Ok::<_, String>(relinked.dashboard)
+    })
+    .await
+    .map_err(|error| {
+        CommandError::new("backgroundFailed", format!("重新定位背景工作失敗：{error}"))
+    })?
+    .map_err(|message| {
+        if message == "riskyConfirmationRequired" {
+            CommandError::new(
+                "riskyConfirmationRequired",
+                "重新定位到高風險內容可能執行程式或變更系統，請再次確認。",
+            )
+        } else {
+            CommandError::storage(message)
+        }
+    })
+}
+
+#[tauri::command]
+async fn export_backup(
+    request: BackupPathRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<backup::ExportResult, CommandError> {
+    let store = Arc::clone(&runtime.store);
+    tauri::async_runtime::spawn_blocking(move || {
+        backup::export_backup(&store, Path::new(&request.path))
+    })
+    .await
+    .map_err(|error| CommandError::new("backgroundFailed", format!("匯出背景工作失敗：{error}")))?
+    .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+async fn inspect_backup(request: BackupPathRequest) -> Result<backup::BackupPreview, CommandError> {
+    tauri::async_runtime::spawn_blocking(move || backup::inspect_backup(Path::new(&request.path)))
+        .await
+        .map_err(|error| {
+            CommandError::new("backgroundFailed", format!("備份檢查背景工作失敗：{error}"))
+        })?
+        .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+async fn restore_backup(
+    request: BackupPathRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<backup::RestoreResult, CommandError> {
+    let store = Arc::clone(&runtime.store);
+    let safety_backup_dir = runtime.safety_backup_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        backup::restore_backup(&store, Path::new(&request.path), &safety_backup_dir)
+    })
+    .await
+    .map_err(|error| CommandError::new("backgroundFailed", format!("還原背景工作失敗：{error}")))?
+    .map_err(CommandError::storage)
+}
+
+#[tauri::command]
 async fn undo_last(
     runtime: State<'_, PersonalPlaceRuntime>,
 ) -> Result<DashboardState, CommandError> {
@@ -625,22 +848,35 @@ pub fn run() {
                 .into_iter()
                 .map(|(id, target)| (id, target.path))
                 .collect();
-            let store = WorkspaceStore::open(&app_data_dir.join("personal-place.db"))
-                .map_err(std::io::Error::other)?;
+            let database_path = app_data_dir.join("personal-place.db");
+            let (store, database_error) = match WorkspaceStore::open(&database_path) {
+                Ok(store) => (store, None),
+                Err(error) => (
+                    WorkspaceStore::in_memory().map_err(std::io::Error::other)?,
+                    Some(error),
+                ),
+            };
             let preview_cache_dir = app.path().app_cache_dir()?.join("previews");
             fs::create_dir_all(&preview_cache_dir)?;
             app.manage(PersonalPlaceRuntime {
                 store: Arc::new(store),
+                database_error,
+                database_path,
                 legacy_registry_path,
                 legacy_targets: Arc::new(legacy_targets),
                 legacy_backup_dir: app_data_dir.join("legacy-backups"),
                 preview_cache_dir,
                 preview_cache_io: Arc::new(Mutex::new(())),
+                safety_backup_dir: app_data_dir.join("backups").join("automatic"),
+                recovery_backup_dir: app_data_dir.join("backups").join("recovery"),
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             initialize_workspace,
+            get_recovery_info,
+            open_recovery_backup_folder,
+            recover_database,
             get_dashboard,
             ingest_items,
             update_card,
@@ -653,6 +889,12 @@ pub fn run() {
             update_group_resume,
             set_launch_enabled,
             launch_group,
+            search_dashboard,
+            check_targets,
+            relink_target,
+            export_backup,
+            inspect_backup,
+            restore_backup,
             undo_last,
             create_page,
             update_page,

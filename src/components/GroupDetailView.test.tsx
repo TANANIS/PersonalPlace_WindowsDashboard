@@ -39,6 +39,7 @@ function renderView(overrides: Record<string, unknown> = {}) {
     group,
     cards: [card({})],
     previews: {},
+    targetStatuses: {},
     editing: false,
     busy: false,
     onBack: vi.fn(),
@@ -49,6 +50,7 @@ function renderView(overrides: Record<string, unknown> = {}) {
     onEditCard: vi.fn(),
     onMoveOut: vi.fn(),
     onDeleteCard: vi.fn(),
+    onRepairCard: vi.fn(),
     onSetLaunchEnabled: vi.fn().mockResolvedValue(undefined),
     onSaveResume: vi.fn().mockResolvedValue(undefined),
     onLaunch: vi.fn().mockResolvedValue({
@@ -98,5 +100,22 @@ describe("GroupDetailView", () => {
     expect(screen.getAllByText("Unity")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "關閉" }));
     await waitFor(() => expect(screen.queryByText("開啟結果")).not.toBeInTheDocument());
+  });
+
+  it("捷徑或本機目標開啟失敗時提供重新定位", async () => {
+    const localCard = card({ kind: "local", launchEnabled: true });
+    const onRepairCard = vi.fn();
+    renderView({
+      cards: [localCard],
+      onRepairCard,
+      onLaunch: vi.fn().mockResolvedValue({
+        groupId: "group-1",
+        items: [{ cardId: "card-1", title: "Unity", status: "failed", message: "捷徑目標無法開啟" }],
+      }),
+    });
+    fireEvent.click(screen.getByRole("button", { name: /開啟這個地方/ }));
+    const repair = await screen.findByRole("button", { name: "重新定位" });
+    fireEvent.click(repair);
+    expect(onRepairCard).toHaveBeenCalledWith(localCard);
   });
 });

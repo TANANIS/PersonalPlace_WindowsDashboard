@@ -9,6 +9,7 @@ interface GroupDetailViewProps {
   group: DashboardCard;
   cards: DashboardCard[];
   previews: Record<string, LauncherPreview>;
+  targetStatuses: Record<string, "available" | "missing" | "unavailable" | "unknown">;
   editing: boolean;
   busy: boolean;
   onBack: () => void;
@@ -19,6 +20,7 @@ interface GroupDetailViewProps {
   onEditCard: (card: DashboardCard) => void;
   onMoveOut: (card: DashboardCard) => void;
   onDeleteCard: (card: DashboardCard) => void;
+  onRepairCard: (card: DashboardCard) => void;
   onSetLaunchEnabled: (card: DashboardCard, enabled: boolean) => Promise<void>;
   onSaveResume: (value: string) => Promise<void>;
   onLaunch: () => Promise<GroupLaunchResult>;
@@ -37,6 +39,7 @@ export function GroupDetailView({
   group,
   cards,
   previews,
+  targetStatuses,
   editing,
   busy,
   onBack,
@@ -47,6 +50,7 @@ export function GroupDetailView({
   onEditCard,
   onMoveOut,
   onDeleteCard,
+  onRepairCard,
   onSetLaunchEnabled,
   onSaveResume,
   onLaunch,
@@ -141,8 +145,9 @@ export function GroupDetailView({
           <div className="place-card-grid">
             {cards.map((card) => {
               const preview = previews[card.id];
+              const targetProblem = card.cardType === "target" && (targetStatuses[card.id] === "missing" || targetStatuses[card.id] === "unavailable");
               return (
-                <article className={`place-item tone-${card.tone}`} key={card.id}>
+                <article className={`place-item tone-${card.tone}${targetProblem ? " is-target-missing" : ""}`} key={card.id}>
                   <button
                     type="button"
                     className="place-item-main"
@@ -170,6 +175,11 @@ export function GroupDetailView({
                       />
                       一次開啟
                     </label>
+                  )}
+                  {targetProblem && (
+                    <button type="button" className="repair-target-button" onClick={() => onRepairCard(card)}>
+                      ! 重新定位
+                    </button>
                   )}
                   {editing && (
                     <div className="place-item-controls">
@@ -215,13 +225,24 @@ export function GroupDetailView({
                 <button type="button" onClick={() => setLaunchResult(null)}>關閉</button>
               </div>
               <ul>
-                {launchResult.items.map((item) => (
-                  <li className={`is-${item.status}`} key={item.cardId}>
-                    <span>{launchLabels[item.status]}</span>
-                    <strong>{item.title}</strong>
-                    {item.message && <small>{item.message}</small>}
-                  </li>
-                ))}
+                {launchResult.items.map((item) => {
+                  const failedCard = cards.find((card) => card.id === item.cardId);
+                  const canRepair =
+                    failedCard?.kind === "local" &&
+                    (item.status === "missing" || item.status === "failed");
+                  return (
+                    <li className={`is-${item.status}`} key={item.cardId}>
+                      <span>{launchLabels[item.status]}</span>
+                      <strong>{item.title}</strong>
+                      {item.message && <small>{item.message}</small>}
+                      {canRepair && failedCard && (
+                        <button type="button" onClick={() => onRepairCard(failedCard)}>
+                          重新定位
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
               {launchResult.stateError && <p>{launchResult.stateError}</p>}
             </section>

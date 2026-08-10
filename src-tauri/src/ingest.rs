@@ -489,7 +489,7 @@ fn launcher_item(
     }
 }
 
-fn target_id_for_path(path: &Path) -> String {
+pub(crate) fn target_id_for_path(path: &Path) -> String {
     format!(
         "local-{}",
         stable_hash(&path.to_string_lossy().to_lowercase())

@@ -1,6 +1,6 @@
 [package]
 name = "personal-workspace"
-version = "0.7.0"
+version = "0.8.0"
 description = "Windows 個人工作台"
 authors = ["JSrad"]
 edition = "2021"
@@ -25,6 +25,7 @@ tauri-plugin-dialog = "2"
 open = "5"
 rusqlite = { version = "0.40.2", default-features = false, features = ["backup", "bundled"] }
 url = "2"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61.3", features = [

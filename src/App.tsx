@@ -12,6 +12,10 @@ import { CardEditDialog, type CardEditValues } from "./components/CardEditDialog
 import { PageManagerDialog } from "./components/PageManagerDialog";
 import { GroupDetailView } from "./components/GroupDetailView";
 import { NoteEditDialog } from "./components/NoteEditDialog";
+import { GlobalSearchDialog } from "./components/GlobalSearchDialog";
+import { TargetRepairDialog } from "./components/TargetRepairDialog";
+import { BackupDialog } from "./components/BackupDialog";
+import { RecoveryScreen } from "./components/RecoveryScreen";
 import { UndoBar } from "./components/UndoBar";
 import { defaultState } from "./data/defaults";
 import { placesDemoState } from "./data/demo";
@@ -19,14 +23,18 @@ import { changeSelection } from "./lib/editing";
 import { loadLegacyState } from "./lib/storage";
 import {
   clearPreviewCache,
+  checkTargets,
   createGroup,
   createNote,
   createPage,
   deleteCards,
   deletePage,
+  exportBackup,
   getDashboard,
   getLauncherPreview,
   getPreviewCacheInfo,
+  getRecoveryInfo,
+  inspectBackup,
   ingestItems,
   initializeWorkspace,
   isTauriRuntime,
@@ -38,11 +46,16 @@ import {
   platformErrorMessage,
   platformErrorCode,
   setLaunchEnabled,
+  searchDashboard,
   undoLast,
   ungroup,
   updateCard,
   updateGroupResume,
   updateNote,
+  relinkTarget,
+  recoverDatabase,
+  openRecoveryBackupFolder,
+  restoreBackup,
   updatePage,
 } from "./lib/platform";
 import type {
@@ -52,6 +65,9 @@ import type {
   IngestResult,
   LauncherPreview,
   PreviewCacheInfo,
+  DashboardSearchResult,
+  TargetAvailability,
+  RecoveryInfo,
 } from "./lib/platform";
 import type {
   DashboardCard,
@@ -138,6 +154,19 @@ function App() {
   const [noteBeingEdited, setNoteBeingEdited] = useState<DashboardCard | null>(null);
   const [cardEditError, setCardEditError] = useState<string | null>(null);
   const [persistenceReady, setPersistenceReady] = useState(false);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [repairCardId, setRepairCardId] = useState<string | null>(null);
+  const [repairError, setRepairError] = useState<string | null>(null);
+  const [backupOpen, setBackupOpen] = useState(false);
+  const [targetStatuses, setTargetStatuses] = useState<Record<string, TargetAvailability>>({});
+  const [recoveryInfo, setRecoveryInfo] = useState<RecoveryInfo | null>(() =>
+    import.meta.env.DEV && new URLSearchParams(window.location.search).get("demo") === "recovery"
+      ? {
+          technicalError: "database disk image is malformed (demo)",
+          backupFolder: "C:\\Users\\Demo\\AppData\\Roaming\\tw.jsrad.personal-workspace\\backups\\recovery",
+        }
+      : null,
+  );
   const stateRef = useRef(state);
   const activePageIdRef = useRef(activePageId);
   const openGroupIdRef = useRef(openGroupId);
@@ -182,7 +211,21 @@ function App() {
         readyRef.current = true;
         setPersistenceReady(true);
       })
-      .catch((error) => setNotice(platformErrorMessage(error, "無法載入本機資料庫。")));
+      .catch(async (error) => {
+        if (disposed) return;
+        if (platformErrorCode(error) === "databaseUnavailable") {
+          try {
+            setRecoveryInfo(await getRecoveryInfo());
+          } catch {
+            setRecoveryInfo({
+              technicalError: platformErrorMessage(error, "資料庫無法開啟。"),
+              backupFolder: "無法取得備份資料夾位置",
+            });
+          }
+          return;
+        }
+        setNotice(platformErrorMessage(error, "無法載入本機資料庫。"));
+      });
     return () => {
       disposed = true;
     };
@@ -207,6 +250,17 @@ function App() {
     const timer = window.setTimeout(() => setNotice(null), 3600);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    function handleGlobalShortcut(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setGlobalSearchOpen(true);
+      }
+    }
+    window.addEventListener("keydown", handleGlobalShortcut);
+    return () => window.removeEventListener("keydown", handleGlobalShortcut);
+  }, []);
 
   const activePage =
     state.pages.find((page) => page.id === activePageId) ??
@@ -446,7 +500,12 @@ function App() {
     try {
       await launchCard(card.id);
     } catch (error) {
-      setNotice(platformErrorMessage(error, "無法開啟這個項目。"));
+      const message = platformErrorMessage(error, "無法開啟這個項目。");
+      setNotice(message);
+      if (card.kind === "local") {
+        setRepairError(message);
+        setRepairCardId(card.id);
+      }
     }
   }
 
@@ -514,6 +573,61 @@ function App() {
       throw error;
     }
   }, []);
+
+  const runGlobalSearch = useCallback(async (value: string): Promise<DashboardSearchResult[]> => {
+    if (isTauriRuntime()) return searchDashboard(value);
+    const needle = value.trim().toLocaleLowerCase("zh-TW");
+    if (!needle) return [];
+    const pageById = new Map(stateRef.current.pages.map((page) => [page.id, page]));
+    const cardById = new Map(stateRef.current.cards.map((card) => [card.id, card]));
+    const results: DashboardSearchResult[] = [];
+    for (const page of stateRef.current.pages) {
+      if (page.name.toLocaleLowerCase("zh-TW").includes(needle)) {
+        results.push({ id: page.id, resultType: "page", title: page.name, subtitle: "頁面", pageId: page.id, pageName: page.name, score: page.name.toLocaleLowerCase("zh-TW") === needle ? 0 : 2 });
+      }
+    }
+    for (const card of stateRef.current.cards) {
+      const page = pageById.get(card.pageId);
+      if (!page) continue;
+      const group = card.parentGroupId ? cardById.get(card.parentGroupId) : undefined;
+      const title = card.title.toLocaleLowerCase("zh-TW");
+      const matches = title.includes(needle) || card.subtitle.toLocaleLowerCase("zh-TW").includes(needle) || card.noteText.toLocaleLowerCase("zh-TW").includes(needle) || card.resumeNote.toLocaleLowerCase("zh-TW").includes(needle) || Boolean(group?.title.toLocaleLowerCase("zh-TW").includes(needle));
+      if (!matches) continue;
+      results.push({ id: card.id, resultType: card.cardType, title: card.title, subtitle: card.subtitle, pageId: page.id, pageName: page.name, groupId: group?.id, groupName: group?.title, cardType: card.cardType, score: title === needle ? 0 : title.startsWith(needle) ? 1 : title.includes(needle) ? 2 : group?.title.toLocaleLowerCase("zh-TW").includes(needle) ? 3 : 4 });
+    }
+    return results.sort((left, right) => left.score - right.score || left.title.localeCompare(right.title, "zh-TW"));
+  }, []);
+
+  function chooseSearchResult(result: DashboardSearchResult) {
+    setGlobalSearchOpen(false);
+    setActivePageId(result.pageId);
+    if (result.resultType === "page") {
+      setOpenGroupId(null);
+      return;
+    }
+    const card = stateRef.current.cards.find((candidate) => candidate.id === result.id);
+    if (!card) return;
+    if (card.cardType === "group") {
+      groupNavigationRef.current = {
+        pageId: result.pageId,
+        query,
+        scrollY: window.scrollY,
+        editing,
+      };
+      setOpenGroupId(card.id);
+      return;
+    }
+    if (card.cardType === "note") {
+      setNoteBeingEdited(card);
+      return;
+    }
+    void launchCard(card.id).catch((error) => {
+      setNotice(platformErrorMessage(error, "無法開啟搜尋結果。"));
+      if (targetStatuses[card.id] === "missing" || targetStatuses[card.id] === "unavailable") {
+        setRepairCardId(card.id);
+      }
+    });
+  }
 
   function selectCard(event: React.MouseEvent, cardId: string) {
     const result = changeSelection(
@@ -614,9 +728,78 @@ function App() {
   const currentNoteBeingEdited = noteBeingEdited
     ? state.cards.find((card) => card.id === noteBeingEdited.id && card.cardType === "note") ?? null
     : null;
+  const repairCard = repairCardId
+    ? state.cards.find((card) => card.id === repairCardId && card.cardType === "target") ?? null
+    : null;
+
+  useEffect(() => {
+    if (!persistenceReady) return;
+    let disposed = false;
+    if (!isTauriRuntime()) {
+      const demoStatuses = Object.fromEntries(
+        stateRef.current.cards
+          .filter((card) => card.cardType === "target")
+          .map((card) => [card.id, card.id === "card-project" ? "missing" : card.kind === "web" ? "unknown" : "available"]),
+      ) as Record<string, TargetAvailability>;
+      setTargetStatuses(demoStatuses);
+      return;
+    }
+    void checkTargets(activePage.id, openGroup?.id ?? null)
+      .then((statuses) => {
+        if (!disposed) setTargetStatuses(Object.fromEntries(statuses.map((status) => [status.cardId, status.status])));
+      })
+      .catch(() => {
+        if (!disposed) setTargetStatuses({});
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [activePage.id, openGroup?.id, persistenceReady, previewGeneration]);
+
+  async function performRelink(card: DashboardCard, path: string, allowRisky = false) {
+    setMutationBusy(true);
+    setRepairError(null);
+    try {
+      adoptDashboard(await relinkTarget(card.id, path, allowRisky));
+      requestedPreviewsRef.current.delete(card.id);
+      setPreviews((current) => {
+        const next = { ...current };
+        delete next[card.id];
+        return next;
+      });
+      setPreviewGeneration((current) => current + 1);
+      setRepairCardId(null);
+      setNotice("已重新定位並保留原本的卡片設定。");
+    } catch (error) {
+      if (
+        !allowRisky &&
+        platformErrorCode(error) === "riskyConfirmationRequired" &&
+        window.confirm("重新定位到這個項目可能執行程式或變更系統，確定繼續嗎？")
+      ) {
+        setMutationBusy(false);
+        await performRelink(card, path, true);
+        return;
+      }
+      setRepairError(platformErrorMessage(error, "無法重新定位這張卡片。"));
+      throw error;
+    } finally {
+      setMutationBusy(false);
+    }
+  }
   const selectedCards = topLevelCards.filter((card) => selectedIds.has(card.id));
   const canGroup = selectedCards.length >= 2 && selectedCards.every((card) => card.cardType !== "group");
   const canMoveIntoGroup = selectedCards.length > 0 && selectedCards.every((card) => card.cardType !== "group");
+
+  if (recoveryInfo) {
+    return (
+      <RecoveryScreen
+        info={recoveryInfo}
+        onInspect={inspectBackup}
+        onRecover={recoverDatabase}
+        onOpenBackupFolder={openRecoveryBackupFolder}
+      />
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -654,6 +837,7 @@ function App() {
             group={openGroup}
             cards={openGroupCards}
             previews={previews}
+            targetStatuses={targetStatuses}
             editing={editing}
             busy={mutationBusy}
             onBack={leaveGroup}
@@ -675,6 +859,10 @@ function App() {
               targetIndex: topLevelCards.length,
             }))}
             onDeleteCard={(card) => void commitMutation("已移除卡片", () => deleteCards([card.id]))}
+            onRepairCard={(card) => {
+              setRepairError(null);
+              setRepairCardId(card.id);
+            }}
             onSetLaunchEnabled={toggleLaunchCard}
             onSaveResume={saveResumeNote}
             onLaunch={async () => {
@@ -694,6 +882,7 @@ function App() {
           <div><p className="eyebrow">PERSONAL WORKSPACE</p><h1>{activePage.name}</h1></div>
           <div className="topbar-actions">
             <label className="search-box"><span aria-hidden="true">⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋這個頁面" /></label>
+            <button type="button" className="global-search-button" onClick={() => setGlobalSearchOpen(true)} title="搜尋所有地方 (Ctrl+K)">Ctrl K</button>
             <button className="button secondary" disabled={!persistenceReady || mutationBusy} onClick={() => {
               setEditing((current) => !current);
               setSelectedIds(new Set());
@@ -741,13 +930,14 @@ function App() {
         <section className={`launcher-grid ${editing ? "is-editing" : ""}`}>
           {visibleCards.map((card) => {
             const preview = previews[card.id];
+            const targetProblem = card.cardType === "target" && (targetStatuses[card.id] === "missing" || targetStatuses[card.id] === "unavailable");
             const children = card.cardType === "group"
               ? pageCards.filter((candidate) => candidate.parentGroupId === card.id).sort((a, b) => a.position - b.position)
               : [];
             const selected = selectedIds.has(card.id);
             return (
               <article
-                className={`launcher-card size-${card.size} tone-${card.tone}${preview ? ` has-preview preview-${preview.kind}` : ""}${selected ? " is-selected" : ""}${card.cardType === "group" ? " group-card" : ""}`}
+                className={`launcher-card size-${card.size} tone-${card.tone}${preview ? ` has-preview preview-${preview.kind}` : ""}${selected ? " is-selected" : ""}${card.cardType === "group" ? " group-card" : ""}${targetProblem ? " is-target-missing" : ""}`}
                 key={card.id}
                 draggable={editing && !mutationBusy}
                 onDragStart={() => setDraggedId(card.id)}
@@ -792,6 +982,7 @@ function App() {
                   <p>{card.cardType === "group" ? `${children.length} 個項目` : card.subtitle}</p>
                 </div>
                 {card.cardType === "target" && <span className="open-indicator" aria-hidden="true">↗</span>}
+                {targetProblem && !editing && <button type="button" className="card-repair-button" onClick={(event) => { event.stopPropagation(); setRepairError(null); setRepairCardId(card.id); }}>! 重新定位</button>}
                 {editing && (
                   <div className="edit-controls" onClick={(event) => event.stopPropagation()}>
                     {card.cardType === "group" && <button onClick={() => setGroupContentsId(card.id)} title="管理群組內容">▦</button>}
@@ -823,7 +1014,7 @@ function App() {
       {nativeDragActive && <div className="native-drop-overlay" role="status"><div className="native-drop-target"><span aria-hidden="true">＋</span><strong>放開即可加入{openGroup ? "這個地方" : "目前頁面"}</strong><small>可同時加入多個檔案、捷徑或資料夾</small></div></div>}
       {dropResult && <div className="floating-ingest-result"><IngestResultPanel result={dropResult} busy={dropBusy} onDismiss={() => { dropApprovalsRef.current.clear(); dropResultRef.current = null; setDropResult(null); }} onRetryDuplicates={() => void retryDroppedProblems(dropResult.issues.filter((issue) => issue.code === "duplicate"), "duplicate")} onConfirmRisky={() => void retryDroppedProblems(dropResult.issues.filter((issue) => issue.code === "risky"), "risky")} /></div>}
 
-      {settingsOpen && <div className="dialog-backdrop" onMouseDown={() => setSettingsOpen(false)}><section className="dialog settings-dialog" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">SETTINGS</p><h2>設定</h2></div><button className="icon-button" onClick={() => setSettingsOpen(false)}>×</button></div><div className="settings-list"><button className="settings-row" onClick={() => { setSettingsOpen(false); setGuideOpen(true); }}><span className="settings-row-icon" aria-hidden="true">?</span><span><strong>使用介紹</strong><small>查看拖放、新增與整理項目的方法</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><div className="settings-row cache-row"><span className="settings-row-icon" aria-hidden="true">▧</span><span><strong>縮圖儲存區</strong><small>{cacheInfo ? `${cacheInfo.entries} 個預覽 · ${formatStorageSize(cacheInfo.bytes)}` : "正在讀取使用量…"}</small></span><button className="cache-clear-button" disabled={cacheBusy || !cacheInfo || cacheInfo.entries === 0} onClick={() => void clearStoredPreviews()}>{cacheBusy ? "清除中" : "清除"}</button></div></div><footer className="settings-footer"><span>個人工作台</span><span>版本 0.7.0</span></footer></section></div>}
+      {settingsOpen && <div className="dialog-backdrop" onMouseDown={() => setSettingsOpen(false)}><section className="dialog settings-dialog" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">SETTINGS</p><h2>設定</h2></div><button className="icon-button" onClick={() => setSettingsOpen(false)}>×</button></div><div className="settings-list"><button className="settings-row" onClick={() => { setSettingsOpen(false); setGuideOpen(true); }}><span className="settings-row-icon" aria-hidden="true">?</span><span><strong>使用介紹</strong><small>查看拖放、新增與整理項目的方法</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><button className="settings-row" onClick={() => { setSettingsOpen(false); setBackupOpen(true); }}><span className="settings-row-icon" aria-hidden="true">⇅</span><span><strong>備份與還原</strong><small>匯出或取代式還原本機資料</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><div className="settings-row cache-row"><span className="settings-row-icon" aria-hidden="true">▧</span><span><strong>縮圖儲存區</strong><small>{cacheInfo ? `${cacheInfo.entries} 個預覽 · ${formatStorageSize(cacheInfo.bytes)}` : "正在讀取使用量…"}</small></span><button className="cache-clear-button" disabled={cacheBusy || !cacheInfo || cacheInfo.entries === 0} onClick={() => void clearStoredPreviews()}>{cacheBusy ? "清除中" : "清除"}</button></div></div><footer className="settings-footer"><span>個人工作台</span><span>版本 0.8.0</span></footer></section></div>}
 
       {guideOpen && <div className="dialog-backdrop" onMouseDown={() => setGuideOpen(false)}><section className="dialog guide-dialog" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">QUICK GUIDE</p><h2>使用介紹</h2></div><button className="icon-button" onClick={() => setGuideOpen(false)}>×</button></div><div className="guide-hero"><span aria-hidden="true">＋</span><div><strong>直接拖進來即可新增</strong><p>支援 EXE、捷徑、資料夾與各種檔案，也能一次拖入多個項目。</p></div></div><div className="guide-steps"><article><span>01</span><strong>選擇頁面</strong><p>新增的內容會放進目前頁面；編輯模式可以新增、重新命名與排序頁面。</p></article><article><span>02</span><strong>多選整理</strong><p>在編輯模式使用 Ctrl 或 Shift 多選卡片，再建立群組或移到其他頁面。</p></article><article><span>03</span><strong>放心調整</strong><p>排序、調整大小、刪除與群組操作都能從畫面下方復原。</p></article></div><div className="dialog-actions"><button className="button primary" onClick={() => setGuideOpen(false)}>知道了</button></div></section></div>}
 
@@ -848,6 +1039,18 @@ function App() {
         void commitMutation("已刪除頁面", () => deletePage(page.id));
       }} />}
       {groupContentsId && <div className="dialog-backdrop" onMouseDown={() => setGroupContentsId(null)}><section className="dialog group-contents-dialog" role="dialog" aria-modal="true" aria-labelledby="group-contents-title" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">GROUP CONTENTS</p><h2 id="group-contents-title">群組內容</h2></div><button className="icon-button" onClick={() => setGroupContentsId(null)}>×</button></div><div className="group-contents-list">{groupContents.length === 0 ? <p className="muted-copy">這個群組目前沒有卡片。</p> : groupContents.map((card) => <div key={card.id} className="group-content-row"><span>{card.symbol}</span><strong>{card.title}</strong><button disabled={mutationBusy} onClick={() => void commitMutation("已移出群組", () => moveCards({ cardIds: [card.id], destinationPageId: card.pageId, destinationGroupId: null, targetIndex: topLevelCards.length }))}>移出群組</button></div>)}</div><div className="dialog-actions"><button className="button secondary" onClick={() => setGroupContentsId(null)}>完成</button></div></section></div>}
+      {globalSearchOpen && <GlobalSearchDialog onClose={() => setGlobalSearchOpen(false)} onSearch={runGlobalSearch} onChoose={chooseSearchResult} />}
+      {repairCard && <TargetRepairDialog card={repairCard} busy={mutationBusy} error={repairError} onClose={() => { setRepairCardId(null); setRepairError(null); }} onRelink={(path) => performRelink(repairCard, path)} onRemove={() => {
+        void commitMutation("已移除失效卡片", () => deleteCards([repairCard.id])).then((result) => {
+          if (result) setRepairCardId(null);
+        });
+      }} />}
+      {backupOpen && <BackupDialog onClose={() => setBackupOpen(false)} onExport={exportBackup} onInspect={inspectBackup} onRestore={restoreBackup} onRestored={(result) => {
+        adoptDashboard(result.dashboard);
+        setOpenGroupId(null);
+        setSelectedIds(new Set());
+        setPreviewGeneration((current) => current + 1);
+      }} />}
     </div>
   );
 }

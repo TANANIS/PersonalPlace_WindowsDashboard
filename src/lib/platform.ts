@@ -98,6 +98,52 @@ export interface GroupLaunchResult {
   stateError?: string;
 }
 
+export interface DashboardSearchResult {
+  id: string;
+  resultType: "page" | "target" | "group" | "note";
+  title: string;
+  subtitle: string;
+  pageId: string;
+  pageName: string;
+  groupId?: string;
+  groupName?: string;
+  cardType?: "target" | "group" | "note";
+  score: number;
+}
+
+export type TargetAvailability = "available" | "missing" | "unavailable" | "unknown";
+
+export interface TargetStatusResult {
+  cardId: string;
+  status: TargetAvailability;
+}
+
+export interface BackupPreview {
+  formatVersion: number;
+  appVersion: string;
+  exportedAt: string;
+  pageCount: number;
+  cardCount: number;
+  groupCount: number;
+  noteCount: number;
+  targetCount: number;
+}
+
+export interface ExportBackupResult {
+  path: string;
+  preview: BackupPreview;
+}
+
+export interface RestoreBackupResult {
+  dashboard: DashboardState;
+  safetyBackupPath: string;
+}
+
+export interface RecoveryInfo {
+  technicalError: string;
+  backupFolder: string;
+}
+
 export type NativeDragEvent =
   | { type: "enter"; paths: string[] }
   | { type: "over" }
@@ -234,6 +280,53 @@ export async function setLaunchEnabled(
 
 export async function launchGroup(groupId: string): Promise<GroupLaunchResult> {
   return invoke<GroupLaunchResult>("launch_group", { request: { groupId } });
+}
+
+export async function searchDashboard(query: string): Promise<DashboardSearchResult[]> {
+  return invoke<DashboardSearchResult[]>("search_dashboard", { request: { query } });
+}
+
+export async function checkTargets(
+  pageId: string,
+  parentGroupId: string | null,
+): Promise<TargetStatusResult[]> {
+  return invoke<TargetStatusResult[]>("check_targets", {
+    request: { pageId, parentGroupId },
+  });
+}
+
+export async function relinkTarget(
+  cardId: string,
+  newPath: string,
+  allowRisky = false,
+): Promise<DashboardState> {
+  return invoke<DashboardState>("relink_target", {
+    request: { cardId, newPath, allowRisky },
+  });
+}
+
+export async function exportBackup(path: string): Promise<ExportBackupResult> {
+  return invoke<ExportBackupResult>("export_backup", { request: { path } });
+}
+
+export async function inspectBackup(path: string): Promise<BackupPreview> {
+  return invoke<BackupPreview>("inspect_backup", { request: { path } });
+}
+
+export async function restoreBackup(path: string): Promise<RestoreBackupResult> {
+  return invoke<RestoreBackupResult>("restore_backup", { request: { path } });
+}
+
+export async function getRecoveryInfo(): Promise<RecoveryInfo> {
+  return invoke<RecoveryInfo>("get_recovery_info");
+}
+
+export async function openRecoveryBackupFolder(): Promise<void> {
+  await invoke("open_recovery_backup_folder");
+}
+
+export async function recoverDatabase(path: string): Promise<void> {
+  await invoke("recover_database", { request: { path } });
 }
 
 export async function undoLast(): Promise<DashboardState> {

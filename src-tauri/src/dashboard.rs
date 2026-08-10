@@ -790,7 +790,7 @@ fn ensure_top_level_group(
         .ok_or_else(|| "找不到目標群組。".to_string())
 }
 
-fn load_dashboard(connection: &Connection) -> Result<DashboardState, String> {
+pub(crate) fn load_dashboard(connection: &Connection) -> Result<DashboardState, String> {
     let mut page_statement = connection
         .prepare("SELECT id, name, symbol FROM pages ORDER BY position, id")
         .map_err(|error| format!("無法準備頁面查詢：{error}"))?;
@@ -948,7 +948,7 @@ fn cleanup_orphan_targets(transaction: &Transaction<'_>) -> Result<(), String> {
         .map_err(|error| format!("無法清理未使用的啟動目標：{error}"))
 }
 
-fn write_dashboard(
+pub(crate) fn write_dashboard(
     transaction: &Transaction<'_>,
     dashboard: &DashboardState,
 ) -> Result<(), String> {
