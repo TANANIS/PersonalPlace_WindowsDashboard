@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "只允許主要本機視窗使用必要的 Tauri 核心功能。",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open"]
+}
