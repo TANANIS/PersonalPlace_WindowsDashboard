@@ -14,11 +14,20 @@ pub struct PreviewPayload {
     pub kind: String,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct PreviewAsset {
+    pub bytes: Vec<u8>,
+    pub mime_type: String,
+    pub kind: String,
+}
+
 #[derive(Deserialize, Serialize)]
 struct CachedPreview {
     version: u8,
     fingerprint: String,
-    preview: PreviewPayload,
+    kind: String,
+    mime_type: String,
+    file_name: String,
 }
 
 #[derive(Serialize)]
@@ -28,7 +37,7 @@ pub struct PreviewCacheInfo {
     pub bytes: u64,
 }
 
-const CACHE_VERSION: u8 = 3;
+const CACHE_VERSION: u8 = 4;
 const REMOTE_ICON_FINGERPRINT: &str = "url-metadata-icon-v1";
 
 const TEXT_EXTENSIONS: &[&str] = &[
@@ -46,7 +55,7 @@ pub fn load_or_generate_cached(
     cache_dir: &Path,
     cache_key: &str,
     source_path: &Path,
-) -> Result<Option<PreviewPayload>, String> {
+) -> Result<Option<PreviewAsset>, String> {
     fs::create_dir_all(cache_dir).map_err(|error| format!("無法建立縮圖儲存區：{error}"))?;
     let cache_path = cache_dir.join(format!("{cache_key}.json"));
     let fingerprint = source_fingerprint(source_path)?;
@@ -54,8 +63,15 @@ pub fn load_or_generate_cached(
     if let Ok(content) = fs::read_to_string(&cache_path) {
         if let Ok(cached) = serde_json::from_str::<CachedPreview>(&content) {
             if cached.version == CACHE_VERSION && cached.fingerprint == fingerprint {
-                return Ok(Some(cached.preview));
+                if let Ok(bytes) = fs::read(cache_dir.join(&cached.file_name)) {
+                    return Ok(Some(PreviewAsset {
+                        bytes,
+                        mime_type: cached.mime_type,
+                        kind: cached.kind,
+                    }));
+                }
             }
+            let _ = fs::remove_file(cache_dir.join(cached.file_name));
         }
         let _ = fs::remove_file(&cache_path);
     }
@@ -63,16 +79,22 @@ pub fn load_or_generate_cached(
     let Some(preview) = generate_preview(source_path)? else {
         return Ok(None);
     };
+    let asset = decode_preview(preview)?;
+    let file_name = format!("{cache_key}.{}", extension_for_mime(&asset.mime_type));
+    fs::write(cache_dir.join(&file_name), &asset.bytes)
+        .map_err(|error| format!("無法保存縮圖檔案：{error}"))?;
     let document = CachedPreview {
         version: CACHE_VERSION,
         fingerprint,
-        preview: preview.clone(),
+        kind: asset.kind.clone(),
+        mime_type: asset.mime_type.clone(),
+        file_name,
     };
     let content =
         serde_json::to_vec(&document).map_err(|error| format!("無法整理縮圖快取：{error}"))?;
     fs::write(&cache_path, content).map_err(|error| format!("無法保存縮圖快取：{error}"))?;
 
-    Ok(Some(preview))
+    Ok(Some(asset))
 }
 
 pub fn store_remote_icon(
@@ -82,14 +104,17 @@ pub fn store_remote_icon(
     bytes: &[u8],
 ) -> Result<(), String> {
     fs::create_dir_all(cache_dir).map_err(|error| format!("無法建立縮圖儲存區：{error}"))?;
-    let preview = PreviewPayload {
-        data_url: format!("data:{mime_type};base64,{}", STANDARD.encode(bytes)),
-        kind: "icon".to_string(),
-    };
+    remove_cached_preview(cache_dir, cache_key)?;
+    let normalized_mime = normalize_image_mime(mime_type);
+    let file_name = format!("{cache_key}.{}", extension_for_mime(normalized_mime));
+    fs::write(cache_dir.join(&file_name), bytes)
+        .map_err(|error| format!("無法保存網站圖示檔案：{error}"))?;
     let document = CachedPreview {
         version: CACHE_VERSION,
         fingerprint: REMOTE_ICON_FINGERPRINT.to_string(),
-        preview,
+        kind: "icon".to_string(),
+        mime_type: normalized_mime.to_string(),
+        file_name,
     };
     let content =
         serde_json::to_vec(&document).map_err(|error| format!("無法整理網站圖示快取：{error}"))?;
@@ -97,10 +122,7 @@ pub fn store_remote_icon(
         .map_err(|error| format!("無法保存網站圖示快取：{error}"))
 }
 
-pub fn load_remote_icon(
-    cache_dir: &Path,
-    cache_key: &str,
-) -> Result<Option<PreviewPayload>, String> {
+pub fn load_remote_icon(cache_dir: &Path, cache_key: &str) -> Result<Option<PreviewAsset>, String> {
     let cache_path = cache_dir.join(format!("{cache_key}.json"));
     let content = match fs::read_to_string(cache_path) {
         Ok(content) => content,
@@ -112,10 +134,23 @@ pub fn load_remote_icon(
         Err(_) => return Ok(None),
     };
     if cached.version == CACHE_VERSION && cached.fingerprint == REMOTE_ICON_FINGERPRINT {
-        Ok(Some(cached.preview))
+        let bytes = match fs::read(cache_dir.join(&cached.file_name)) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(format!("無法讀取網站圖示檔案：{error}")),
+        };
+        Ok(Some(PreviewAsset {
+            bytes,
+            mime_type: cached.mime_type,
+            kind: cached.kind,
+        }))
     } else {
         Ok(None)
     }
+}
+
+pub fn generic_web_asset() -> Result<PreviewAsset, String> {
+    decode_preview(generic_web_icon())
 }
 
 pub fn generic_web_icon() -> PreviewPayload {
@@ -129,8 +164,67 @@ pub fn generic_web_icon() -> PreviewPayload {
     }
 }
 
+fn decode_preview(preview: PreviewPayload) -> Result<PreviewAsset, String> {
+    let Some((metadata, encoded)) = preview.data_url.split_once(',') else {
+        return Err("預覽資料格式無效。".to_string());
+    };
+    let mime_type = metadata
+        .strip_prefix("data:")
+        .and_then(|value| value.strip_suffix(";base64"))
+        .ok_or_else(|| "預覽資料不是支援的 Base64 圖片。".to_string())?;
+    let bytes = STANDARD
+        .decode(encoded)
+        .map_err(|error| format!("無法解碼預覽圖片：{error}"))?;
+    Ok(PreviewAsset {
+        bytes,
+        mime_type: normalize_image_mime(mime_type).to_string(),
+        kind: preview.kind,
+    })
+}
+
+fn normalize_image_mime(mime_type: &str) -> &str {
+    match mime_type.trim().to_ascii_lowercase().as_str() {
+        "image/svg+xml" => "image/svg+xml",
+        "image/jpeg" | "image/jpg" => "image/jpeg",
+        "image/gif" => "image/gif",
+        "image/webp" => "image/webp",
+        "image/x-icon" | "image/vnd.microsoft.icon" => "image/x-icon",
+        _ => "image/png",
+    }
+}
+
+fn extension_for_mime(mime_type: &str) -> &'static str {
+    match mime_type {
+        "image/svg+xml" => "svg",
+        "image/jpeg" => "jpg",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/x-icon" => "ico",
+        _ => "png",
+    }
+}
+
+pub fn preview_kind_hint(path: &Path) -> String {
+    if path.is_file() && has_extension(path, TEXT_EXTENSIONS) {
+        "text".to_string()
+    } else if path.is_file() && has_extension(path, THUMBNAIL_EXTENSIONS) {
+        "thumbnail".to_string()
+    } else {
+        "icon".to_string()
+    }
+}
+
 pub fn remove_cached_preview(cache_dir: &Path, cache_key: &str) -> Result<(), String> {
     let cache_path = cache_dir.join(format!("{cache_key}.json"));
+    if let Ok(content) = fs::read_to_string(&cache_path) {
+        if let Ok(cached) = serde_json::from_str::<CachedPreview>(&content) {
+            let asset_path = cache_dir.join(cached.file_name);
+            if asset_path.exists() {
+                fs::remove_file(asset_path)
+                    .map_err(|error| format!("無法更新縮圖檔案：{error}"))?;
+            }
+        }
+    }
     if cache_path.exists() {
         fs::remove_file(cache_path).map_err(|error| format!("無法更新縮圖快取：{error}"))?;
     }
@@ -182,6 +276,10 @@ fn source_fingerprint(path: &Path) -> Result<String, String> {
     ))
 }
 
+pub fn preview_version_hint(path: &Path) -> String {
+    source_fingerprint(path).unwrap_or_else(|_| "unavailable".to_string())
+}
+
 fn cache_files(cache_dir: &Path) -> Result<Vec<(PathBuf, u64)>, String> {
     if !cache_dir.exists() {
         return Ok(Vec::new());
@@ -199,7 +297,13 @@ fn cache_files(cache_dir: &Path) -> Result<Vec<(PathBuf, u64)>, String> {
             .metadata()
             .map_err(|error| format!("無法讀取縮圖大小：{error}"))?;
         if metadata.is_file() {
-            entries.push((path, metadata.len()));
+            let asset_bytes = fs::read_to_string(&path)
+                .ok()
+                .and_then(|content| serde_json::from_str::<CachedPreview>(&content).ok())
+                .and_then(|cached| fs::metadata(cache_dir.join(cached.file_name)).ok())
+                .map(|metadata| metadata.len())
+                .unwrap_or_default();
+            entries.push((path, metadata.len() + asset_bytes));
         }
     }
     Ok(entries)
@@ -526,13 +630,18 @@ mod tests {
         let second = load_or_generate_cached(&cache_dir, "fixture", &source)
             .expect("read cached preview")
             .expect("cached preview exists");
-        assert_eq!(first.data_url, second.data_url);
+        assert_eq!(first.bytes, second.bytes);
+        assert_eq!(first.mime_type, "image/svg+xml");
+        let metadata =
+            std::fs::read_to_string(cache_dir.join("fixture.json")).expect("read cache metadata");
+        assert!(!metadata.contains("base64"));
+        assert!(cache_dir.join("fixture.svg").exists());
 
         std::fs::write(&source, "second and longer version").expect("write changed source version");
         let refreshed = load_or_generate_cached(&cache_dir, "fixture", &source)
             .expect("refresh changed preview")
             .expect("refreshed preview exists");
-        assert_ne!(first.data_url, refreshed.data_url);
+        assert_ne!(first.bytes, refreshed.bytes);
 
         clear_cache(&cache_dir).expect("clear preview cache");
         assert_eq!(cache_info(&cache_dir).expect("read empty cache").entries, 0);

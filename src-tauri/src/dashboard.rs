@@ -1019,7 +1019,11 @@ fn unique_id(prefix: &str) -> String {
 #[cfg(test)]
 mod tests {
     use crate::storage::{InsertItemResult, LauncherItem, WorkspaceStore};
-    use std::{collections::HashMap, path::Path};
+    use std::{
+        collections::HashMap,
+        path::Path,
+        time::{Duration, Instant},
+    };
 
     fn seeded_store() -> WorkspaceStore {
         let store = WorkspaceStore::in_memory().expect("create store");
@@ -1091,6 +1095,45 @@ mod tests {
             .map(|card| card.id.as_str())
             .collect::<Vec<_>>();
         assert_eq!(order, vec!["card-one", "card-two", "card-three"]);
+    }
+
+    #[test]
+    fn dashboard_with_two_hundred_cards_loads_within_the_performance_budget() {
+        let store = WorkspaceStore::in_memory().expect("create store");
+        store
+            .initialize(
+                None,
+                &HashMap::new(),
+                Path::new("missing-registry"),
+                Path::new("backups"),
+            )
+            .expect("initialize store");
+        for index in 0..200 {
+            let item = LauncherItem {
+                id: format!("performance-card-{index}"),
+                workspace_id: "home".to_string(),
+                title: format!("Performance {index}"),
+                subtitle: "桌面應用程式".to_string(),
+                kind: "local".to_string(),
+                target: format!("performance-target-{index}"),
+                symbol: "◆".to_string(),
+                tone: "cyan".to_string(),
+                size: "square".to_string(),
+            };
+            store
+                .insert_ingested_item(
+                    &item,
+                    "local",
+                    &format!("C:\\Performance\\{index}.exe"),
+                    false,
+                )
+                .expect("insert performance card");
+        }
+
+        let started = Instant::now();
+        let dashboard = store.get_dashboard().expect("load dashboard");
+        assert_eq!(dashboard.cards.len(), 200);
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[test]

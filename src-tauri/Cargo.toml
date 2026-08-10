@@ -1,7 +1,7 @@
 [package]
 name = "personal-workspace"
-version = "0.8.0"
-description = "Windows 個人工作台"
+version = "0.9.0"
+description = "Local-first Windows personal dashboard"
 authors = ["JSrad"]
 edition = "2021"
 
@@ -23,6 +23,7 @@ sha2 = "0.10"
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 open = "5"
+percent-encoding = "2"
 rusqlite = { version = "0.40.2", default-features = false, features = ["backup", "bundled"] }
 url = "2"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }

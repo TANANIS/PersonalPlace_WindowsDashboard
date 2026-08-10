@@ -1,6 +1,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { useState } from "react";
 import type { DashboardCard } from "../types";
+import { useModalFocus } from "../lib/accessibility";
 
 interface TargetRepairDialogProps {
   card: DashboardCard;
@@ -20,6 +21,7 @@ export function TargetRepairDialog({
   onClose,
 }: TargetRepairDialogProps) {
   const [choosing, setChoosing] = useState(false);
+  const dialogRef = useModalFocus<HTMLElement>(true, onClose);
 
   async function choose(directory: boolean) {
     if (busy || choosing) return;
@@ -40,7 +42,7 @@ export function TargetRepairDialog({
 
   return (
     <div className="dialog-backdrop">
-      <section className="dialog repair-dialog" role="dialog" aria-modal="true" aria-labelledby="repair-title">
+      <section ref={dialogRef} tabIndex={-1} className="dialog repair-dialog" role="dialog" aria-modal="true" aria-labelledby="repair-title">
         <div className="dialog-header">
           <div>
             <p className="eyebrow">TARGET MISSING</p>

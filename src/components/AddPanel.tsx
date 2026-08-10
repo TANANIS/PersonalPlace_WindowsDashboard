@@ -10,6 +10,7 @@ import {
   type IngestResult,
 } from "../lib/platform";
 import type { LauncherItem } from "../types";
+import { useModalFocus } from "../lib/accessibility";
 
 interface AddPanelProps {
   pageId: string;
@@ -247,6 +248,7 @@ export function AddPanel({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<IngestResult | null>(null);
   const approvalsRef = useRef(new Map<string, IngestPermissions>());
+  const dialogRef = useModalFocus<HTMLElement>(true, onClose);
 
   const textInputs = useMemo(() => parseInputLines(inputValue), [inputValue]);
 
@@ -382,6 +384,8 @@ export function AddPanel({
       }}
     >
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         className="dialog add-panel"
         role="dialog"
         aria-modal="true"
@@ -413,6 +417,7 @@ export function AddPanel({
           <label>
             貼上網址或路徑
             <textarea
+              data-initial-focus
               value={inputValue}
               onChange={(event) => setInputValue(event.target.value)}
               placeholder={"https://www.youtube.com\n或 C:\\Users\\你\\Documents"}

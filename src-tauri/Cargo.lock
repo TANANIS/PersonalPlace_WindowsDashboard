@@ -2293,11 +2293,12 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "personal-workspace"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "base64 0.22.1",
  "image",
  "open",
+ "percent-encoding",
  "regex",
  "reqwest 0.12.28",
  "rusqlite",

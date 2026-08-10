@@ -155,7 +155,7 @@ export function GroupDetailView({
                   >
                     <span className="item-symbol" aria-hidden="true">
                       {preview?.kind === "icon" ? (
-                        <img src={preview.dataUrl} alt="" />
+                        <img src={preview.assetUrl} alt="" loading="lazy" decoding="async" />
                       ) : card.symbol}
                     </span>
                     <span>

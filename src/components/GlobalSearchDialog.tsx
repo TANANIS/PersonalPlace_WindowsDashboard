@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { DashboardSearchResult } from "../lib/platform";
+import { useModalFocus } from "../lib/accessibility";
 
 interface GlobalSearchDialogProps {
   onClose: () => void;
@@ -14,6 +15,7 @@ export function GlobalSearchDialog({ onClose, onSearch, onChoose }: GlobalSearch
   const [error, setError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const requestIdRef = useRef(0);
+  const dialogRef = useModalFocus<HTMLElement>(true, onClose);
 
   useEffect(() => {
     const normalized = query.trim();
@@ -51,6 +53,8 @@ export function GlobalSearchDialog({ onClose, onSearch, onChoose }: GlobalSearch
   return (
     <div className="dialog-backdrop search-backdrop" onMouseDown={onClose}>
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         className="global-search-dialog"
         role="dialog"
         aria-modal="true"
@@ -76,6 +80,7 @@ export function GlobalSearchDialog({ onClose, onSearch, onChoose }: GlobalSearch
         <div className="global-search-input">
           <span aria-hidden="true">⌕</span>
           <input
+            data-initial-focus
             value={query}
             autoFocus
             placeholder="搜尋所有頁面、地方、卡片與筆記"

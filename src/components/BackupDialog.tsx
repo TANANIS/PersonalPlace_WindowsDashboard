@@ -6,6 +6,7 @@ import type {
   RestoreBackupResult,
 } from "../lib/platform";
 import { platformErrorMessage } from "../lib/platform";
+import { useModalFocus } from "../lib/accessibility";
 
 interface BackupDialogProps {
   onClose: () => void;
@@ -27,6 +28,7 @@ export function BackupDialog({
   const [error, setError] = useState<string | null>(null);
   const [restorePath, setRestorePath] = useState<string | null>(null);
   const [preview, setPreview] = useState<BackupPreview | null>(null);
+  const dialogRef = useModalFocus<HTMLElement>(true, onClose);
 
   async function exportNow() {
     setError(null);
@@ -91,7 +93,7 @@ export function BackupDialog({
 
   return (
     <div className="dialog-backdrop">
-      <section className="dialog backup-dialog" role="dialog" aria-modal="true" aria-labelledby="backup-title">
+      <section ref={dialogRef} tabIndex={-1} className="dialog backup-dialog" role="dialog" aria-modal="true" aria-labelledby="backup-title">
         <div className="dialog-header">
           <div><p className="eyebrow">LOCAL DATA</p><h2 id="backup-title">備份與還原</h2></div>
           <button type="button" className="icon-button" onClick={onClose} disabled={busy}>×</button>

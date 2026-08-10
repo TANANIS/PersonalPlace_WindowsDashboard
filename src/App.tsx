@@ -18,9 +18,11 @@ import { BackupDialog } from "./components/BackupDialog";
 import { RecoveryScreen } from "./components/RecoveryScreen";
 import { UndoBar } from "./components/UndoBar";
 import { defaultState } from "./data/defaults";
-import { placesDemoState } from "./data/demo";
+import { performanceDemoState, placesDemoState } from "./data/demo";
 import { changeSelection } from "./lib/editing";
 import { loadLegacyState } from "./lib/storage";
+import { useModalFocus } from "./lib/accessibility";
+import { zhTW } from "./i18n/zh-TW";
 import {
   clearPreviewCache,
   checkTargets,
@@ -117,9 +119,13 @@ function formatStorageSize(bytes: number): string {
 
 function App() {
   const [legacyState] = useState<WorkspaceState | null>(() => loadLegacyState());
-  const browserInitial =
-    import.meta.env.DEV && new URLSearchParams(window.location.search).get("demo") === "places"
-      ? placesDemoState
+  const demoMode = import.meta.env.DEV
+    ? new URLSearchParams(window.location.search).get("demo")
+    : null;
+  const browserInitial = demoMode === "places"
+    ? placesDemoState
+    : demoMode === "performance"
+      ? performanceDemoState
       : dashboardFromLegacy(legacyState ?? defaultState);
   const [state, setState] = useState<DashboardState>(browserInitial);
   const [activePageId, setActivePageId] = useState(browserInitial.pages[0]?.id ?? "home");
@@ -184,6 +190,9 @@ function App() {
   const dropResultRef = useRef<IngestResult | null>(null);
   const requestedPreviewsRef = useRef(new Set<string>());
   const previewMountedRef = useRef(true);
+  const settingsDialogRef = useModalFocus<HTMLElement>(settingsOpen, () => setSettingsOpen(false));
+  const guideDialogRef = useModalFocus<HTMLElement>(guideOpen, () => setGuideOpen(false));
+  const groupContentsDialogRef = useModalFocus<HTMLElement>(Boolean(groupContentsId), () => setGroupContentsId(null));
 
   useEffect(() => {
     previewMountedRef.current = true;
@@ -301,7 +310,17 @@ function App() {
   );
 
   useEffect(() => {
-    const previewCards = pageCards.filter((card) => card.cardType === "target");
+    const previewCards = openGroupId
+      ? pageCards.filter((card) => card.cardType === "target" && card.parentGroupId === openGroupId)
+      : [
+          ...topLevelCards.filter((card) => card.cardType === "target"),
+          ...topLevelCards
+            .filter((card) => card.cardType === "group")
+            .flatMap((group) => pageCards
+              .filter((card) => card.cardType === "target" && card.parentGroupId === group.id)
+              .sort((left, right) => left.position - right.position)
+              .slice(0, 4)),
+        ];
     const activeIds = new Set(previewCards.map((card) => card.id));
     requestedPreviewsRef.current = new Set(
       [...requestedPreviewsRef.current].filter((cardId) => activeIds.has(cardId)),
@@ -320,7 +339,7 @@ function App() {
         })
         .catch(() => undefined);
     }
-  }, [pageCards, previewGeneration]);
+  }, [openGroupId, pageCards, previewGeneration, topLevelCards]);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -804,7 +823,7 @@ function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="頁面">
-        <div className="brand" aria-label="個人工作台"><span className="brand-mark">PW</span></div>
+        <div className="brand" aria-label={zhTW.brand.name}><span className="brand-mark">{zhTW.brand.mark}</span></div>
         <nav className="workspace-list">
           {state.pages.map((page) => (
             <button
@@ -879,7 +898,7 @@ function App() {
         ) : (
           <>
         <header className="topbar">
-          <div><p className="eyebrow">PERSONAL WORKSPACE</p><h1>{activePage.name}</h1></div>
+          <div><p className="eyebrow">{zhTW.brand.eyebrow}</p><h1>{activePage.name}</h1></div>
           <div className="topbar-actions">
             <label className="search-box"><span aria-hidden="true">⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋這個頁面" /></label>
             <button type="button" className="global-search-button" onClick={() => setGlobalSearchOpen(true)} title="搜尋所有地方 (Ctrl+K)">Ctrl K</button>
@@ -939,6 +958,10 @@ function App() {
               <article
                 className={`launcher-card size-${card.size} tone-${card.tone}${preview ? ` has-preview preview-${preview.kind}` : ""}${selected ? " is-selected" : ""}${card.cardType === "group" ? " group-card" : ""}${targetProblem ? " is-target-missing" : ""}`}
                 key={card.id}
+                role={editing ? "option" : "button"}
+                aria-selected={editing ? selected : undefined}
+                aria-label={`${card.title}，${card.cardType === "group" ? zhTW.card.placeSummary(children.length) : card.subtitle}${editing ? `；${zhTW.card.keyboardReorderHint}` : ""}`}
+                tabIndex={0}
                 draggable={editing && !mutationBusy}
                 onDragStart={() => setDraggedId(card.id)}
                 onDragOver={(event) => editing && event.preventDefault()}
@@ -950,16 +973,49 @@ function App() {
                   setDraggedId(null);
                 }}
                 onClick={(event) => editing ? selectCard(event, card.id) : void launch(card)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    if (editing) {
+                      const result = changeSelection(
+                        selectedIds,
+                        card.id,
+                        visibleCards.map((candidate) => candidate.id),
+                        selectionAnchor,
+                        { toggle: event.ctrlKey || event.metaKey, range: event.shiftKey },
+                      );
+                      setSelectedIds(result.selected);
+                      setSelectionAnchor(result.anchorId);
+                    } else {
+                      void launch(card);
+                    }
+                    return;
+                  }
+                  if (!editing || !event.altKey || mutationBusy) return;
+                  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+                  event.preventDefault();
+                  const currentIndex = topLevelCards.findIndex((candidate) => candidate.id === card.id);
+                  const delta = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+                  const targetIndex = Math.max(0, Math.min(topLevelCards.length - 1, currentIndex + delta));
+                  if (targetIndex !== currentIndex) {
+                    void commitMutation("已用鍵盤調整卡片順序", () => moveCards({
+                      cardIds: [card.id],
+                      destinationPageId: activePage.id,
+                      destinationGroupId: null,
+                      targetIndex,
+                    }));
+                  }
+                }}
               >
-                {preview && preview.kind !== "icon" && <div className="card-preview-media" aria-hidden="true"><img src={preview.dataUrl} alt="" loading="lazy" decoding="async" /></div>}
+                {preview && preview.kind !== "icon" && <div className="card-preview-media" aria-hidden="true"><img src={preview.assetUrl} alt="" loading="lazy" decoding="async" /></div>}
                 <div className="card-glow" />
                 <div className="card-heading">
                   {card.cardType === "group" ? (
                     <span className="group-symbol-stack" aria-hidden="true">
-                      {children.slice(0, 4).map((child) => <span key={child.id}>{previews[child.id]?.kind === "icon" ? <img src={previews[child.id].dataUrl} alt="" /> : child.symbol}</span>)}
+                      {children.slice(0, 4).map((child) => <span key={child.id}>{previews[child.id]?.kind === "icon" ? <img src={previews[child.id].assetUrl} alt="" loading="lazy" decoding="async" /> : child.symbol}</span>)}
                     </span>
                   ) : (
-                    <span className="item-symbol" aria-hidden="true">{preview?.kind === "icon" ? <img className="system-icon" src={preview.dataUrl} alt="" loading="lazy" decoding="async" /> : card.symbol}</span>
+                    <span className="item-symbol" aria-hidden="true">{preview?.kind === "icon" ? <img className="system-icon" src={preview.assetUrl} alt="" loading="lazy" decoding="async" /> : card.symbol}</span>
                   )}
                   <span className="kind-label">{kindLabel(card)}</span>
                 </div>
@@ -1014,9 +1070,9 @@ function App() {
       {nativeDragActive && <div className="native-drop-overlay" role="status"><div className="native-drop-target"><span aria-hidden="true">＋</span><strong>放開即可加入{openGroup ? "這個地方" : "目前頁面"}</strong><small>可同時加入多個檔案、捷徑或資料夾</small></div></div>}
       {dropResult && <div className="floating-ingest-result"><IngestResultPanel result={dropResult} busy={dropBusy} onDismiss={() => { dropApprovalsRef.current.clear(); dropResultRef.current = null; setDropResult(null); }} onRetryDuplicates={() => void retryDroppedProblems(dropResult.issues.filter((issue) => issue.code === "duplicate"), "duplicate")} onConfirmRisky={() => void retryDroppedProblems(dropResult.issues.filter((issue) => issue.code === "risky"), "risky")} /></div>}
 
-      {settingsOpen && <div className="dialog-backdrop" onMouseDown={() => setSettingsOpen(false)}><section className="dialog settings-dialog" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">SETTINGS</p><h2>設定</h2></div><button className="icon-button" onClick={() => setSettingsOpen(false)}>×</button></div><div className="settings-list"><button className="settings-row" onClick={() => { setSettingsOpen(false); setGuideOpen(true); }}><span className="settings-row-icon" aria-hidden="true">?</span><span><strong>使用介紹</strong><small>查看拖放、新增與整理項目的方法</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><button className="settings-row" onClick={() => { setSettingsOpen(false); setBackupOpen(true); }}><span className="settings-row-icon" aria-hidden="true">⇅</span><span><strong>備份與還原</strong><small>匯出或取代式還原本機資料</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><div className="settings-row cache-row"><span className="settings-row-icon" aria-hidden="true">▧</span><span><strong>縮圖儲存區</strong><small>{cacheInfo ? `${cacheInfo.entries} 個預覽 · ${formatStorageSize(cacheInfo.bytes)}` : "正在讀取使用量…"}</small></span><button className="cache-clear-button" disabled={cacheBusy || !cacheInfo || cacheInfo.entries === 0} onClick={() => void clearStoredPreviews()}>{cacheBusy ? "清除中" : "清除"}</button></div></div><footer className="settings-footer"><span>個人工作台</span><span>版本 0.8.0</span></footer></section></div>}
+      {settingsOpen && <div className="dialog-backdrop" onMouseDown={() => setSettingsOpen(false)}><section ref={settingsDialogRef} tabIndex={-1} className="dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">SETTINGS</p><h2 id="settings-title">設定</h2></div><button className="icon-button" onClick={() => setSettingsOpen(false)} aria-label="關閉設定">×</button></div><div className="settings-list"><button className="settings-row" onClick={() => { setSettingsOpen(false); setGuideOpen(true); }}><span className="settings-row-icon" aria-hidden="true">?</span><span><strong>使用介紹</strong><small>查看拖放、新增與整理項目的方法</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><button className="settings-row" onClick={() => { setSettingsOpen(false); setBackupOpen(true); }}><span className="settings-row-icon" aria-hidden="true">⇅</span><span><strong>備份與還原</strong><small>匯出或取代式還原本機資料</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><div className="settings-row cache-row"><span className="settings-row-icon" aria-hidden="true">▧</span><span><strong>縮圖儲存區</strong><small>{cacheInfo ? `${cacheInfo.entries} 個預覽 · ${formatStorageSize(cacheInfo.bytes)}` : "正在讀取使用量…"}</small></span><button className="cache-clear-button" disabled={cacheBusy || !cacheInfo || cacheInfo.entries === 0} onClick={() => void clearStoredPreviews()}>{cacheBusy ? "清除中" : "清除"}</button></div></div><footer className="settings-footer"><span>{zhTW.brand.name}</span><span>版本 0.9.0 · 未公開測試版</span></footer></section></div>}
 
-      {guideOpen && <div className="dialog-backdrop" onMouseDown={() => setGuideOpen(false)}><section className="dialog guide-dialog" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">QUICK GUIDE</p><h2>使用介紹</h2></div><button className="icon-button" onClick={() => setGuideOpen(false)}>×</button></div><div className="guide-hero"><span aria-hidden="true">＋</span><div><strong>直接拖進來即可新增</strong><p>支援 EXE、捷徑、資料夾與各種檔案，也能一次拖入多個項目。</p></div></div><div className="guide-steps"><article><span>01</span><strong>選擇頁面</strong><p>新增的內容會放進目前頁面；編輯模式可以新增、重新命名與排序頁面。</p></article><article><span>02</span><strong>多選整理</strong><p>在編輯模式使用 Ctrl 或 Shift 多選卡片，再建立群組或移到其他頁面。</p></article><article><span>03</span><strong>放心調整</strong><p>排序、調整大小、刪除與群組操作都能從畫面下方復原。</p></article></div><div className="dialog-actions"><button className="button primary" onClick={() => setGuideOpen(false)}>知道了</button></div></section></div>}
+      {guideOpen && <div className="dialog-backdrop" onMouseDown={() => setGuideOpen(false)}><section ref={guideDialogRef} tabIndex={-1} className="dialog guide-dialog" role="dialog" aria-modal="true" aria-labelledby="guide-title" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">QUICK GUIDE</p><h2 id="guide-title">使用介紹</h2></div><button className="icon-button" onClick={() => setGuideOpen(false)} aria-label="關閉使用介紹">×</button></div><div className="guide-hero"><span aria-hidden="true">＋</span><div><strong>直接拖進來即可新增</strong><p>支援 EXE、捷徑、資料夾與各種檔案，也能一次拖入多個項目。</p></div></div><div className="guide-steps"><article><span>01</span><strong>選擇頁面</strong><p>新增的內容會放進目前頁面；編輯模式可以新增、重新命名與排序頁面。</p></article><article><span>02</span><strong>多選整理</strong><p>在編輯模式使用 Ctrl 或 Shift 多選卡片，再建立群組或移到其他頁面。</p></article><article><span>03</span><strong>放心調整</strong><p>排序、調整大小、刪除與群組操作都能從畫面下方復原。</p></article></div><div className="dialog-actions"><button className="button primary" onClick={() => setGuideOpen(false)}>知道了</button></div></section></div>}
 
       {dialogOpen && <AddPanel pageId={activePage.id} performIngest={runSerializedIngest} onAdded={() => void refreshDashboard()} onClose={() => setDialogOpen(false)} />}
       {addGroupId && <AddPanel pageId={activePage.id} parentGroupId={addGroupId} performIngest={runSerializedIngest} onAdded={() => void refreshDashboard()} onClose={() => setAddGroupId(null)} />}
@@ -1038,7 +1094,7 @@ function App() {
         if (count > 0 && !window.confirm(`「${page.name}」包含 ${count} 張卡片，確定要刪除嗎？`)) return;
         void commitMutation("已刪除頁面", () => deletePage(page.id));
       }} />}
-      {groupContentsId && <div className="dialog-backdrop" onMouseDown={() => setGroupContentsId(null)}><section className="dialog group-contents-dialog" role="dialog" aria-modal="true" aria-labelledby="group-contents-title" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">GROUP CONTENTS</p><h2 id="group-contents-title">群組內容</h2></div><button className="icon-button" onClick={() => setGroupContentsId(null)}>×</button></div><div className="group-contents-list">{groupContents.length === 0 ? <p className="muted-copy">這個群組目前沒有卡片。</p> : groupContents.map((card) => <div key={card.id} className="group-content-row"><span>{card.symbol}</span><strong>{card.title}</strong><button disabled={mutationBusy} onClick={() => void commitMutation("已移出群組", () => moveCards({ cardIds: [card.id], destinationPageId: card.pageId, destinationGroupId: null, targetIndex: topLevelCards.length }))}>移出群組</button></div>)}</div><div className="dialog-actions"><button className="button secondary" onClick={() => setGroupContentsId(null)}>完成</button></div></section></div>}
+      {groupContentsId && <div className="dialog-backdrop" onMouseDown={() => setGroupContentsId(null)}><section ref={groupContentsDialogRef} tabIndex={-1} className="dialog group-contents-dialog" role="dialog" aria-modal="true" aria-labelledby="group-contents-title" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">GROUP CONTENTS</p><h2 id="group-contents-title">群組內容</h2></div><button className="icon-button" onClick={() => setGroupContentsId(null)} aria-label="關閉群組內容">×</button></div><div className="group-contents-list">{groupContents.length === 0 ? <p className="muted-copy">這個群組目前沒有卡片。</p> : groupContents.map((card) => <div key={card.id} className="group-content-row"><span>{card.symbol}</span><strong>{card.title}</strong><button disabled={mutationBusy} onClick={() => void commitMutation("已移出群組", () => moveCards({ cardIds: [card.id], destinationPageId: card.pageId, destinationGroupId: null, targetIndex: topLevelCards.length }))}>移出群組</button></div>)}</div><div className="dialog-actions"><button className="button secondary" onClick={() => setGroupContentsId(null)}>完成</button></div></section></div>}
       {globalSearchOpen && <GlobalSearchDialog onClose={() => setGlobalSearchOpen(false)} onSearch={runGlobalSearch} onChoose={chooseSearchResult} />}
       {repairCard && <TargetRepairDialog card={repairCard} busy={mutationBusy} error={repairError} onClose={() => { setRepairCardId(null); setRepairError(null); }} onRelink={(path) => performRelink(repairCard, path)} onRemove={() => {
         void commitMutation("已移除失效卡片", () => deleteCards([repairCard.id])).then((result) => {

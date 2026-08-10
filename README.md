@@ -1,6 +1,13 @@
 # Personal Place
 
-本機優先的 Windows 個人首頁。目前完成 0.8.0「搜尋、修復、備份與還原」里程碑。
+本機優先的 Windows 個人首頁。目前完成 0.9.0「公開版品質」工程里程碑；因尚未簽章，產物仍標示為未公開測試版。
+
+隱私、資料與發布資訊：
+
+- [隱私說明](./PRIVACY.md)
+- [資料與備份](./DATA_AND_BACKUP.md)
+- [第三方套件授權](./THIRD_PARTY_LICENSES.md)
+- [發布檢查表](./RELEASE_CHECKLIST.md)
 
 ## 目前功能
 
@@ -48,6 +55,12 @@
 - 只檢查目前可見頁面或地方的本機目標；遺失項目可重新定位並保留卡片身分與一次開啟設定
 - `.personal-place` 備份包含頁面、卡片、地方、Target、筆記與 Launch Set，還原前會建立 SQLite 一致性安全備份
 - 資料庫無法開啟時不建立空白資料，改顯示 Recovery 畫面並保留原始損壞檔案
+- 可開啟卡片具備鍵盤語意，Enter／Space 可開啟，編輯模式可用 Alt＋方向鍵排序
+- Dialog 提供初始焦點、焦點陷阱、Escape 關閉與焦點還原，並支援 `:focus-visible`、High Contrast 與 reduced motion
+- 預覽改用受控唯讀資源 URL 與二進位快取檔，不再透過 IPC 傳送 Base64；圖片採 lazy loading
+- 只載入目前頁面或地方的預覽，來源改變時自動失效，設定保留用量顯示與手動清除
+- 已加入 200 卡資料、切頁與最小視窗效能驗收情境
+- 使用者可見品牌統一為 Personal Place；Tauri identifier 與舊資料位置維持不變
 
 ## 開發
 
@@ -63,7 +76,7 @@ pnpm test
 pnpm tauri dev
 ```
 
-## 0.8.0 驗證
+## 0.9.0 驗證
 
 ```powershell
 pnpm build
@@ -72,9 +85,9 @@ cargo clippy --manifest-path .\src-tauri\Cargo.toml --all-targets
 pnpm tauri build
 ```
 
-## 下一階段（0.9.0）
+## 1.0 發布門檻
 
-- 完整鍵盤操作、Dialog 焦點管理與 High Contrast
-- Windows DPI、多螢幕與最小視窗驗收
-- 預覽改為受控資源 URL、Lazy loading 與 200 卡效能驗收
-- Personal Place 品牌與字串集中管理、公開版隱私與授權文件
+- 全新安裝與 0.4.0 實際資料升級情境
+- 乾淨環境備份還原、壞路徑修復與完整鍵盤流程
+- Windows 10／11、100%／125%／150%／200% 實體 DPI 與不同縮放雙螢幕
+- EXE／Installer 程式碼簽章；完成前僅能作為未公開測試版

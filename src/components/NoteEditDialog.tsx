@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { DashboardCard, ItemSize } from "../types";
+import { useModalFocus } from "../lib/accessibility";
 
 interface NoteEditDialogProps {
   note: DashboardCard;
@@ -23,6 +24,7 @@ export function NoteEditDialog({
   const [text, setText] = useState(note.noteText);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const savedTextRef = useRef(note.noteText);
+  const dialogRef = useModalFocus<HTMLElement>(true, onClose);
 
   useEffect(() => {
     if (text === savedTextRef.current) return;
@@ -60,7 +62,7 @@ export function NoteEditDialog({
 
   return (
     <div className="dialog-backdrop">
-      <section className="dialog note-dialog" role="dialog" aria-modal="true" aria-labelledby="note-dialog-title">
+      <section ref={dialogRef} tabIndex={-1} className="dialog note-dialog" role="dialog" aria-modal="true" aria-labelledby="note-dialog-title">
         <div className="dialog-header">
           <div>
             <p className="eyebrow">NOTE</p>

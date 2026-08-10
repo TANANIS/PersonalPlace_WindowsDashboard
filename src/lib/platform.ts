@@ -9,7 +9,7 @@ import type {
 } from "../types";
 
 export interface LauncherPreview {
-  dataUrl: string;
+  assetUrl: string;
   kind: "icon" | "thumbnail" | "text";
 }
 

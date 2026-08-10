@@ -65,3 +65,28 @@ export const placesDemoState: DashboardState = {
     },
   ],
 };
+
+export const performanceDemoState: DashboardState = {
+  pages: [
+    { id: "page-a", name: "效能測試 A", symbol: "A" },
+    { id: "page-b", name: "效能測試 B", symbol: "B" },
+  ],
+  cards: Array.from({ length: 200 }, (_, index) => ({
+    id: `performance-card-${index + 1}`,
+    pageId: index < 100 ? "page-a" : "page-b",
+    parentGroupId: null,
+    cardType: "target" as const,
+    targetId: `performance-target-${index + 1}`,
+    title: `測試項目 ${String(index + 1).padStart(3, "0")}`,
+    subtitle: index % 3 === 0 ? "網站入口" : "本機應用程式",
+    kind: (index % 3 === 0 ? "web" : "app") as "web" | "app",
+    symbol: index % 3 === 0 ? "↗" : "◆",
+    tone: (["cyan", "violet", "amber", "rose", "slate"] as const)[index % 5],
+    size: index % 7 === 0 ? "wide" as const : "square" as const,
+    position: index % 100,
+    noteText: "",
+    resumeNote: "",
+    launchEnabled: false,
+    lastOpenedAt: null,
+  })),
+};

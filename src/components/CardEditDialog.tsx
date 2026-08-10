@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { DashboardCard, ItemSize, ItemTone } from "../types";
+import { useModalFocus } from "../lib/accessibility";
 
 export interface CardEditValues {
   title: string;
@@ -37,10 +38,13 @@ export function CardEditDialog({
   const [subtitle, setSubtitle] = useState(item.subtitle);
   const [tone, setTone] = useState<ItemTone>(item.tone);
   const [size, setSize] = useState<ItemSize>(item.size);
+  const dialogRef = useModalFocus<HTMLElement>(true, onClose);
 
   return (
     <div className="dialog-backdrop" onMouseDown={onClose}>
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         className="dialog card-edit-dialog"
         role="dialog"
         aria-modal="true"

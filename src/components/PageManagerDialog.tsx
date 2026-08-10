@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Page } from "../types";
+import { useModalFocus } from "../lib/accessibility";
 
 const PAGE_SYMBOLS = ["⌂", "○", "◇", "✦", "▦", "◎", "☕", "♫"];
 
@@ -23,6 +24,7 @@ export function PageManagerDialog({
   onDelete,
 }: PageManagerDialogProps) {
   const [drafts, setDrafts] = useState<Record<string, { name: string; symbol: string }>>({});
+  const dialogRef = useModalFocus<HTMLElement>(true, onClose);
 
   useEffect(() => {
     setDrafts(
@@ -33,6 +35,8 @@ export function PageManagerDialog({
   return (
     <div className="dialog-backdrop" onMouseDown={onClose}>
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         className="dialog page-manager-dialog"
         role="dialog"
         aria-modal="true"

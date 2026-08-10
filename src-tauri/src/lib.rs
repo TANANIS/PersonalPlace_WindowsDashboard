@@ -18,7 +18,7 @@ mod storage;
 
 use dashboard::{CardMutation, DashboardState};
 use ingest::{IngestRequest, IngestResult};
-use preview::{PreviewCacheInfo, PreviewPayload};
+use preview::PreviewCacheInfo;
 use storage::{WorkspaceState, WorkspaceStore};
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -202,6 +202,13 @@ struct BackupPathRequest {
 struct RecoveryInfo {
     technical_error: String,
     backup_folder: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreviewReference {
+    asset_url: String,
+    kind: String,
 }
 
 fn load_registry(file_path: &Path) -> RegistryDocument {
@@ -752,29 +759,23 @@ fn validate_update_request(request: &UpdateCardRequest) -> Result<(), String> {
 async fn get_item_preview(
     card_id: String,
     runtime: State<'_, PersonalPlaceRuntime>,
-) -> Result<Option<PreviewPayload>, String> {
+) -> Result<Option<PreviewReference>, String> {
     let store = Arc::clone(&runtime.store);
-    let cache_dir = runtime.preview_cache_dir.clone();
-    let cache_io = Arc::clone(&runtime.preview_cache_io);
     tauri::async_runtime::spawn_blocking(move || {
         let target = store
             .resolve_card_target(&card_id)?
             .ok_or_else(|| "找不到要預覽的卡片。".to_string())?;
-        let cache_key = ingest::preview_cache_key(&target.card.target);
-        let _guard = cache_io
-            .lock()
-            .map_err(|_| "縮圖儲存區暫時無法使用。".to_string())?;
-        match target.target_kind.as_str() {
-            "url" => Ok(Some(
-                preview::load_remote_icon(&cache_dir, &cache_key)?
-                    .unwrap_or_else(preview::generic_web_icon),
-            )),
+        let (kind, version) = match target.target_kind.as_str() {
+            "url" => ("icon".to_string(), target.card.target.clone()),
             "local" => {
                 let path = PathBuf::from(&target.locator);
                 if !path.exists() {
                     return Ok(None);
                 }
-                preview::load_or_generate_cached(&cache_dir, &cache_key, &path)
+                (
+                    preview::preview_kind_hint(&path),
+                    preview::preview_version_hint(&path),
+                )
             }
             "builtin" => {
                 let Some(path) = ingest::built_in_path(&target.locator) else {
@@ -783,13 +784,85 @@ async fn get_item_preview(
                 if !path.exists() {
                     return Ok(None);
                 }
-                preview::load_or_generate_cached(&cache_dir, &cache_key, &path)
+                ("icon".to_string(), preview::preview_version_hint(&path))
             }
-            _ => Ok(None),
-        }
+            _ => return Ok(None),
+        };
+        let encoded_card =
+            percent_encoding::utf8_percent_encode(&card_id, percent_encoding::NON_ALPHANUMERIC);
+        let encoded_version =
+            percent_encoding::utf8_percent_encode(&version, percent_encoding::NON_ALPHANUMERIC);
+        Ok(Some(PreviewReference {
+            asset_url: format!("http://preview.localhost/{encoded_card}?v={encoded_version}"),
+            kind,
+        }))
     })
     .await
     .map_err(|error| format!("縮圖背景工作失敗：{error}"))?
+}
+
+fn load_preview_asset(
+    store: &WorkspaceStore,
+    cache_dir: &Path,
+    cache_io: &Mutex<()>,
+    card_id: &str,
+) -> Result<preview::PreviewAsset, String> {
+    let target = store
+        .resolve_card_target(card_id)?
+        .ok_or_else(|| "找不到要預覽的卡片。".to_string())?;
+    let cache_key = ingest::preview_cache_key(&target.card.target);
+    let _guard = cache_io
+        .lock()
+        .map_err(|_| "縮圖儲存區暫時無法使用。".to_string())?;
+    match target.target_kind.as_str() {
+        "url" => preview::load_remote_icon(cache_dir, &cache_key)?
+            .map(Ok)
+            .unwrap_or_else(preview::generic_web_asset),
+        "local" => {
+            let path = PathBuf::from(&target.locator);
+            if !path.exists() {
+                return Err("預覽來源已不存在。".to_string());
+            }
+            preview::load_or_generate_cached(cache_dir, &cache_key, &path)?
+                .ok_or_else(|| "這個項目沒有可用的預覽。".to_string())
+        }
+        "builtin" => {
+            let path = ingest::built_in_path(&target.locator)
+                .ok_or_else(|| "內建應用程式沒有可用的預覽路徑。".to_string())?;
+            preview::load_or_generate_cached(cache_dir, &cache_key, &path)?
+                .ok_or_else(|| "這個應用程式沒有可用的預覽。".to_string())
+        }
+        _ => Err("這個目標類型沒有可用的預覽。".to_string()),
+    }
+}
+
+fn preview_protocol_response(
+    store: Arc<WorkspaceStore>,
+    cache_dir: PathBuf,
+    cache_io: Arc<Mutex<()>>,
+    card_id: String,
+) -> tauri::http::Response<Vec<u8>> {
+    match load_preview_asset(&store, &cache_dir, &cache_io, &card_id) {
+        Ok(asset) => tauri::http::Response::builder()
+            .status(tauri::http::StatusCode::OK)
+            .header(tauri::http::header::CONTENT_TYPE, asset.mime_type)
+            .header(
+                tauri::http::header::CACHE_CONTROL,
+                "private, max-age=31536000, immutable",
+            )
+            .header("X-Content-Type-Options", "nosniff")
+            .body(asset.bytes)
+            .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
+        Err(message) => tauri::http::Response::builder()
+            .status(tauri::http::StatusCode::NOT_FOUND)
+            .header(
+                tauri::http::header::CONTENT_TYPE,
+                "text/plain; charset=utf-8",
+            )
+            .header("X-Content-Type-Options", "nosniff")
+            .body(message.into_bytes())
+            .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
+    }
 }
 
 #[tauri::command]
@@ -838,6 +911,21 @@ fn launch_card(card_id: String, runtime: State<'_, PersonalPlaceRuntime>) -> Res
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .register_asynchronous_uri_scheme_protocol("preview", |context, request, responder| {
+            let runtime = context.app_handle().state::<PersonalPlaceRuntime>();
+            let store = Arc::clone(&runtime.store);
+            let cache_dir = runtime.preview_cache_dir.clone();
+            let cache_io = Arc::clone(&runtime.preview_cache_io);
+            let encoded_card = request.uri().path().trim_start_matches('/');
+            let card_id = percent_encoding::percent_decode_str(encoded_card)
+                .decode_utf8_lossy()
+                .into_owned();
+            std::thread::spawn(move || {
+                responder.respond(preview_protocol_response(
+                    store, cache_dir, cache_io, card_id,
+                ));
+            });
+        })
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             fs::create_dir_all(&app_data_dir)?;
