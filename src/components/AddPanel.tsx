@@ -9,7 +9,7 @@ import {
   type IngestRequest,
   type IngestResult,
 } from "../lib/platform";
-import type { LauncherItem } from "../types";
+import type { LauncherItem, WidgetKind } from "../types";
 import { useModalFocus } from "../lib/accessibility";
 
 interface AddPanelProps {
@@ -18,6 +18,7 @@ interface AddPanelProps {
   onAdded?: (items: LauncherItem[]) => void;
   onClose: () => void;
   performIngest?: (request: IngestRequest) => Promise<IngestResult>;
+  onCreateWidget?: (kind: WidgetKind) => Promise<void>;
 }
 
 interface IngestResultPanelProps {
@@ -51,8 +52,10 @@ function inputApprovalKey(input: Pick<IngestInput, "inputType" | "value">): stri
   return `${input.inputType}\u0000${input.value}`;
 }
 
-function canStartNewIngest(busy: boolean, hasPendingResult: boolean): boolean {
-  return !busy && !hasPendingResult;
+function canStartNewIngest(busy: boolean, _hasPendingResult: boolean): boolean {
+  // Results stay visible for review, but must not turn into a hidden lock that
+  // prevents the next file drop or file-picker action.
+  return !busy;
 }
 
 function approveAndGroupProblems(
@@ -243,9 +246,11 @@ export function AddPanel({
   onAdded,
   onClose,
   performIngest = ingestItems,
+  onCreateWidget,
 }: AddPanelProps) {
   const [inputValue, setInputValue] = useState("");
   const [busy, setBusy] = useState(false);
+  const [widgetBusy, setWidgetBusy] = useState<WidgetKind | null>(null);
   const [result, setResult] = useState<IngestResult | null>(null);
   const approvalsRef = useRef(new Map<string, IngestPermissions>());
   const dialogRef = useModalFocus<HTMLElement>(true, onClose);
@@ -376,6 +381,17 @@ export function AddPanel({
   const duplicateProblems = result?.issues.filter((issue) => issue.code === "duplicate") ?? [];
   const riskyProblems = result?.issues.filter((issue) => issue.code === "risky") ?? [];
 
+  async function addWidget(kind: WidgetKind) {
+    if (!onCreateWidget || busy || widgetBusy) return;
+    setWidgetBusy(kind);
+    try {
+      await onCreateWidget(kind);
+      onClose();
+    } finally {
+      setWidgetBusy(null);
+    }
+  }
+
   return (
     <div
       className="dialog-backdrop"
@@ -461,6 +477,29 @@ export function AddPanel({
             <small>支援多個檔案、EXE、捷徑與資料夾</small>
           </div>
         </div>
+
+        {onCreateWidget && (
+          <section className="add-widget-section" aria-labelledby="add-widget-title">
+            <div>
+              <p className="eyebrow">BUILT-IN TOOLS</p>
+              <h3 id="add-widget-title">加入小工具</h3>
+              <small>小工具只顯示摘要，點開後才進入完整功能。</small>
+            </div>
+            <div className="add-widget-grid">
+              {([
+                ["todo", "✓", "待辦事項", "清單、截止時間與提醒"],
+                ["focus", "◷", "Focus Timer", "專注與休息循環"],
+                ["usage", "◴", "使用時間", "本機前景 App 統計"],
+              ] as const).map(([kind, symbol, title, description]) => (
+                <button type="button" key={kind} disabled={Boolean(widgetBusy)} onClick={() => void addWidget(kind)}>
+                  <span aria-hidden="true">{symbol}</span>
+                  <span><strong>{title}</strong><small>{description}</small></span>
+                  <span aria-hidden="true">＋</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
         {result && (
           <IngestResultPanel

@@ -350,10 +350,10 @@ describe("AddPanel", () => {
     expect(performIngest).toHaveBeenCalledTimes(1);
   });
 
-  it("新批次閘門會阻擋忙碌中或尚有未關閉結果的 native drop", () => {
+  it("新批次閘門只在忙碌時阻擋新增，不因未關閉結果封鎖拖放", () => {
     expect(canStartNewIngest(false, false)).toBe(true);
     expect(canStartNewIngest(true, false)).toBe(false);
-    expect(canStartNewIngest(false, true)).toBe(false);
+    expect(canStartNewIngest(false, true)).toBe(true);
     expect(canStartNewIngest(true, true)).toBe(false);
   });
 });

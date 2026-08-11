@@ -63,6 +63,21 @@ export const placesDemoState: DashboardState = {
       launchEnabled: false,
       lastOpenedAt: null,
     },
+    {
+      id: "widget-todo-demo", pageId: "home", parentGroupId: null, cardType: "widget", targetId: null,
+      title: "待辦事項", subtitle: "", kind: "note", symbol: "✓", tone: "cyan", size: "wide", position: 1,
+      noteText: "", resumeNote: "", launchEnabled: false, lastOpenedAt: null, widgetKind: "todo", widgetResourceId: null,
+    },
+    {
+      id: "widget-focus-demo", pageId: "home", parentGroupId: null, cardType: "widget", targetId: null,
+      title: "Focus Timer", subtitle: "", kind: "note", symbol: "◷", tone: "amber", size: "square", position: 2,
+      noteText: "", resumeNote: "", launchEnabled: false, lastOpenedAt: null, widgetKind: "focus", widgetResourceId: null,
+    },
+    {
+      id: "widget-usage-demo", pageId: "home", parentGroupId: null, cardType: "widget", targetId: null,
+      title: "使用時間", subtitle: "", kind: "note", symbol: "◴", tone: "violet", size: "square", position: 3,
+      noteText: "", resumeNote: "", launchEnabled: false, lastOpenedAt: null, widgetKind: "usage", widgetResourceId: null,
+    },
   ],
 };
 

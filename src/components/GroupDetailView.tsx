@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   GroupLaunchResult,
   LauncherPreview,
+  WidgetSummary,
 } from "../lib/platform";
 import type { DashboardCard } from "../types";
 
@@ -9,11 +10,11 @@ interface GroupDetailViewProps {
   group: DashboardCard;
   cards: DashboardCard[];
   previews: Record<string, LauncherPreview>;
+  widgetSummaries?: Record<string, WidgetSummary>;
   targetStatuses: Record<string, "available" | "missing" | "unavailable" | "unknown">;
   editing: boolean;
   busy: boolean;
   onBack: () => void;
-  onToggleEditing: () => void;
   onAddTarget: () => void;
   onCreateNote: () => void;
   onOpenCard: (card: DashboardCard) => void;
@@ -39,11 +40,11 @@ export function GroupDetailView({
   group,
   cards,
   previews,
+  widgetSummaries = {},
   targetStatuses,
   editing,
   busy,
   onBack,
-  onToggleEditing,
   onAddTarget,
   onCreateNote,
   onOpenCard,
@@ -111,9 +112,6 @@ export function GroupDetailView({
           <p>{cards.length} 個項目{group.lastOpenedAt ? " · 最近使用過" : ""}</p>
         </div>
         <div className="place-detail-actions">
-          <button type="button" className="button secondary" onClick={onToggleEditing}>
-            {editing ? "完成整理" : "整理這裡"}
-          </button>
           <button
             type="button"
             className="button primary"
@@ -145,6 +143,7 @@ export function GroupDetailView({
           <div className="place-card-grid">
             {cards.map((card) => {
               const preview = previews[card.id];
+              const widgetSummary = card.cardType === "widget" ? widgetSummaries[card.id] : null;
               const targetProblem = card.cardType === "target" && (targetStatuses[card.id] === "missing" || targetStatuses[card.id] === "unavailable");
               return (
                 <article className={`place-item tone-${card.tone}${targetProblem ? " is-target-missing" : ""}`} key={card.id}>
@@ -160,7 +159,7 @@ export function GroupDetailView({
                     </span>
                     <span>
                       <strong>{card.title}</strong>
-                      <small>{card.cardType === "note" ? card.noteText || "空白筆記" : card.subtitle}</small>
+                      <small>{card.cardType === "note" ? card.noteText || "空白筆記" : card.cardType === "widget" ? widgetSummary?.primaryValue ?? "載入中…" : card.subtitle}</small>
                     </span>
                   </button>
                   {card.cardType === "target" && (

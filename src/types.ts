@@ -25,7 +25,8 @@ export interface WorkspaceState {
   items: LauncherItem[];
 }
 
-export type CardType = "target" | "group" | "note";
+export type CardType = "target" | "group" | "note" | "widget";
+export type WidgetKind = "todo" | "focus" | "usage";
 
 export interface Page {
   id: string;
@@ -50,6 +51,8 @@ export interface DashboardCard {
   resumeNote: string;
   launchEnabled: boolean;
   lastOpenedAt: string | null;
+  widgetKind?: WidgetKind | null;
+  widgetResourceId?: string | null;
 }
 
 export interface DashboardState {

@@ -43,7 +43,6 @@ function renderView(overrides: Record<string, unknown> = {}) {
     editing: false,
     busy: false,
     onBack: vi.fn(),
-    onToggleEditing: vi.fn(),
     onAddTarget: vi.fn(),
     onCreateNote: vi.fn(),
     onOpenCard: vi.fn(),

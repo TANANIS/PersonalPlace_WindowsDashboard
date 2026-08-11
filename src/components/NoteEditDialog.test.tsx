@@ -42,4 +42,22 @@ describe("NoteEditDialog", () => {
     });
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("內容已保存"));
   });
+
+  it("在 debounce 完成前返回也會先保存內容", async () => {
+    const onSaveText = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    render(
+      <NoteEditDialog
+        note={note}
+        busy={false}
+        onSaveText={onSaveText}
+        onSaveAppearance={vi.fn().mockResolvedValue(undefined)}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("內容"), { target: { value: "離開前內容" } });
+    fireEvent.click(screen.getByText("返回閱讀"));
+    await waitFor(() => expect(onSaveText).toHaveBeenCalledWith("離開前內容"));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
 });

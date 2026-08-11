@@ -5,21 +5,34 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
-use tauri::{AppHandle, Manager, State};
+use tauri::{
+    menu::{MenuBuilder, MenuItemBuilder},
+    tray::TrayIconBuilder,
+    AppHandle, Manager, State, WindowEvent,
+};
+use tauri_plugin_notification::NotificationExt;
 
 mod backup;
 mod dashboard;
+mod focus;
 mod ingest;
 mod launcher;
 mod preview;
 mod recovery;
 mod reliability;
 mod storage;
+mod todo;
+mod usage;
+mod widgets;
 
 use dashboard::{CardMutation, DashboardState};
 use ingest::{IngestRequest, IngestResult};
 use preview::PreviewCacheInfo;
 use storage::{WorkspaceState, WorkspaceStore};
+use todo::{TodoItemInput, TodoOverview};
+use widgets::{CreateWidgetResult, WidgetSummary};
+use focus::{FocusSession, FocusSettings, FocusState, StartFocusRequest};
+use usage::{TrackingSettings, UsageStore, UsageSummary};
 
 #[derive(Clone, Deserialize, Serialize)]
 struct RegisteredPath {
@@ -42,6 +55,7 @@ struct PersonalPlaceRuntime {
     preview_cache_io: Arc<Mutex<()>>,
     safety_backup_dir: PathBuf,
     recovery_backup_dir: PathBuf,
+    usage_store: Arc<UsageStore>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -124,6 +138,95 @@ struct MovePageRequest {
 struct PageRequest {
     page_id: String,
 }
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateWidgetRequest {
+    page_id: String,
+    parent_group_id: Option<String>,
+    widget_kind: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WidgetRequest {
+    card_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TodoWidgetListRequest {
+    card_id: String,
+    list_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TodoListCreateRequest {
+    title: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TodoListUpdateRequest {
+    list_id: String,
+    title: String,
+    archived: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TodoItemCreateRequest {
+    list_id: String,
+    item: TodoItemInput,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TodoItemUpdateRequest {
+    item_id: String,
+    item: TodoItemInput,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TodoCompletedRequest {
+    item_id: String,
+    completed: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TodoMoveRequest {
+    item_ids: Vec<String>,
+    list_id: String,
+    parent_id: Option<String>,
+    target_index: usize,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TodoIdsRequest {
+    item_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StopFocusRequest {
+    outcome: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageSummaryRequest { from: i64, to: i64 }
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateTrackedAppRequest { app_id: String, display_name: String, excluded: bool }
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClearUsageRequest { app_id: Option<String> }
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -722,6 +825,202 @@ async fn delete_page(
         .map_err(CommandError::storage)
 }
 
+#[tauri::command]
+fn create_widget(
+    request: CreateWidgetRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<CreateWidgetResult, CommandError> {
+    runtime
+        .store
+        .create_widget(
+            &request.page_id,
+            request.parent_group_id.as_deref(),
+            &request.widget_kind,
+        )
+        .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn get_widget_summary(
+    request: WidgetRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<WidgetSummary, CommandError> {
+    let mut summary = runtime
+        .store
+        .get_widget_summary(&request.card_id)
+        .map_err(CommandError::storage)?;
+    if summary.widget_kind == "usage" {
+        let now = chrono::Local::now();
+        let start = now.date_naive().and_hms_opt(0, 0, 0).and_then(|value| value.and_local_timezone(chrono::Local).single()).map(|value| value.timestamp()).unwrap_or_else(|| now.timestamp());
+        let usage = runtime.usage_store.summary(start, now.timestamp()).map_err(CommandError::storage)?;
+        let tracking = runtime.usage_store.settings().map_err(CommandError::storage)?;
+        summary.primary_value = format!("{} 小時", usage.total_seconds / 3600);
+        summary.secondary_value = if tracking.enabled { usage.apps.iter().take(3).map(|app| app.display_name.as_str()).collect::<Vec<_>>().join(" · ") } else { "追蹤預設關閉".to_string() };
+    }
+    Ok(summary)
+}
+
+#[tauri::command]
+fn update_widget_preferences(
+    request: TodoWidgetListRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<DashboardState, CommandError> {
+    runtime
+        .store
+        .set_todo_widget_list(&request.card_id, &request.list_id)
+        .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn get_todo_overview(
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<TodoOverview, CommandError> {
+    runtime
+        .store
+        .get_todo_overview()
+        .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn create_todo_list(
+    request: TodoListCreateRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<TodoOverview, CommandError> {
+    runtime
+        .store
+        .create_todo_list(&request.title)
+        .map(|result| result.0)
+        .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn update_todo_list(
+    request: TodoListUpdateRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<TodoOverview, CommandError> {
+    runtime
+        .store
+        .update_todo_list(&request.list_id, &request.title, request.archived)
+        .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn create_todo_item(
+    request: TodoItemCreateRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<TodoOverview, CommandError> {
+    runtime
+        .store
+        .create_todo_item(&request.list_id, &request.item)
+        .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn update_todo_item(
+    request: TodoItemUpdateRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<TodoOverview, CommandError> {
+    runtime
+        .store
+        .update_todo_item(&request.item_id, &request.item)
+        .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn set_todo_completed(
+    request: TodoCompletedRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<TodoOverview, CommandError> {
+    runtime
+        .store
+        .set_todo_completed(&request.item_id, request.completed)
+        .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn move_todo_items(
+    request: TodoMoveRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<TodoOverview, CommandError> {
+    runtime
+        .store
+        .move_todo_items(
+            &request.item_ids,
+            &request.list_id,
+            request.parent_id.as_deref(),
+            request.target_index,
+        )
+        .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn delete_todo_items(
+    request: TodoIdsRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<TodoOverview, CommandError> {
+    runtime
+        .store
+        .delete_todo_items(&request.item_ids)
+        .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn restore_todo_items(
+    request: TodoIdsRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<TodoOverview, CommandError> {
+    runtime
+        .store
+        .restore_todo_items(&request.item_ids)
+        .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn get_focus_state(runtime: State<'_, PersonalPlaceRuntime>) -> Result<FocusState, CommandError> {
+    runtime.store.get_focus_state(chrono::Local::now().timestamp()).map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn start_focus(request: StartFocusRequest, runtime: State<'_, PersonalPlaceRuntime>) -> Result<FocusState, CommandError> {
+    runtime.store.start_focus(&request, chrono::Local::now().timestamp()).map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn pause_focus(runtime: State<'_, PersonalPlaceRuntime>) -> Result<FocusState, CommandError> {
+    runtime.store.pause_focus(chrono::Local::now().timestamp()).map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn resume_focus(runtime: State<'_, PersonalPlaceRuntime>) -> Result<FocusState, CommandError> {
+    runtime.store.resume_focus(chrono::Local::now().timestamp()).map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn stop_focus(request: StopFocusRequest, runtime: State<'_, PersonalPlaceRuntime>) -> Result<FocusState, CommandError> {
+    runtime.store.stop_focus(&request.outcome, chrono::Local::now().timestamp()).map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn update_focus_settings(settings: FocusSettings, runtime: State<'_, PersonalPlaceRuntime>) -> Result<FocusState, CommandError> {
+    runtime.store.update_focus_settings(&settings).map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn get_focus_sessions(request: UsageSummaryRequest, runtime: State<'_, PersonalPlaceRuntime>) -> Result<Vec<FocusSession>, CommandError> {
+    runtime.store.get_focus_sessions(request.from, request.to).map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn get_tracking_state(runtime: State<'_, PersonalPlaceRuntime>) -> Result<TrackingSettings, CommandError> { runtime.usage_store.settings().map_err(CommandError::storage) }
+#[tauri::command]
+fn update_tracking_settings(settings: TrackingSettings, runtime: State<'_, PersonalPlaceRuntime>) -> Result<TrackingSettings, CommandError> { runtime.usage_store.update_settings(&settings).map_err(CommandError::storage) }
+#[tauri::command]
+fn get_usage_summary(request: UsageSummaryRequest, runtime: State<'_, PersonalPlaceRuntime>) -> Result<UsageSummary, CommandError> { runtime.usage_store.summary(request.from, request.to).map_err(CommandError::storage) }
+#[tauri::command]
+fn update_tracked_app(request: UpdateTrackedAppRequest, runtime: State<'_, PersonalPlaceRuntime>) -> Result<(), CommandError> { runtime.usage_store.update_app(&request.app_id, &request.display_name, request.excluded).map_err(CommandError::storage) }
+#[tauri::command]
+fn clear_usage_history(request: ClearUsageRequest, runtime: State<'_, PersonalPlaceRuntime>) -> Result<(), CommandError> { runtime.usage_store.clear(request.app_id.as_deref()).map_err(CommandError::storage) }
+
 fn validate_update_request(request: &UpdateCardRequest) -> Result<(), String> {
     if request.card_id.trim().is_empty() {
         return Err("卡片 ID 不能是空白。".to_string());
@@ -911,6 +1210,17 @@ fn launch_card(card_id: String, runtime: State<'_, PersonalPlaceRuntime>) -> Res
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .register_asynchronous_uri_scheme_protocol("preview", |context, request, responder| {
             let runtime = context.app_handle().state::<PersonalPlaceRuntime>();
             let store = Arc::clone(&runtime.store);
@@ -937,6 +1247,11 @@ pub fn run() {
                 .map(|(id, target)| (id, target.path))
                 .collect();
             let database_path = app_data_dir.join("personal-place.db");
+            let usage_store = Arc::new(
+                UsageStore::open(&app_data_dir.join("personal-place-usage.db"))
+                    .or_else(|_| UsageStore::in_memory())
+                    .map_err(std::io::Error::other)?,
+            );
             let (store, database_error) = match WorkspaceStore::open(&database_path) {
                 Ok(store) => (store, None),
                 Err(error) => (
@@ -946,8 +1261,72 @@ pub fn run() {
             };
             let preview_cache_dir = app.path().app_cache_dir()?.join("previews");
             fs::create_dir_all(&preview_cache_dir)?;
+            let store = Arc::new(store);
+            let reminder_store = Arc::clone(&store);
+            let reminder_app = app.handle().clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                let now = chrono::Local::now().timestamp();
+                let Ok(reminders) = reminder_store.claim_due_reminders(now) else {
+                    continue;
+                };
+                for reminder in reminders {
+                    let _ = reminder_app
+                        .notification()
+                        .builder()
+                        .title("Personal Place 待辦提醒")
+                        .body(reminder.title)
+                        .show();
+                }
+            });
+            let tracking_store = Arc::clone(&usage_store);
+            let (foreground_tx, foreground_rx) = crossbeam_channel::bounded(64);
+            std::thread::spawn(move || {
+                let _foreground_hook = usage::install_foreground_hook(foreground_tx);
+                let mut active: Option<(String, String, i64)> = None;
+                loop {
+                    let _ = foreground_rx.recv_timeout(std::time::Duration::from_secs(30));
+                    let now = chrono::Local::now().timestamp();
+                    let Ok(settings) = tracking_store.settings() else { continue; };
+                    let idle = usage::idle_seconds().unwrap_or(0);
+                    let observed = if settings.enabled && (settings.idle_seconds == 0 || idle < settings.idle_seconds) {
+                        usage::foreground_app()
+                    } else { None };
+                    match (active.take(), observed) {
+                        (Some((id, name, started)), Some((next_id, _next_name))) if id == next_id => {
+                            active = Some((id, name, started));
+                        }
+                        (Some((id, name, started)), next) => {
+                            let _ = tracking_store.record(&id, &name, started, now);
+                            active = next.map(|(id, name)| (id, name, now));
+                        }
+                        (None, Some((id, name))) => active = Some((id, name, now)),
+                        (None, None) => {}
+                    }
+                }
+            });
+            let open_item = MenuItemBuilder::with_id("open", "開啟 Personal Place").build(app)?;
+            let timer_item = MenuItemBuilder::with_id("timer", "Focus Timer：尚未開始").enabled(false).build(app)?;
+            let tracking_item = MenuItemBuilder::with_id("tracking", "使用追蹤：尚未啟用").enabled(false).build(app)?;
+            let quit_item = MenuItemBuilder::with_id("quit", "完全結束").build(app)?;
+            let menu = MenuBuilder::new(app)
+                .items(&[&open_item, &timer_item, &tracking_item, &quit_item])
+                .build()?;
+            TrayIconBuilder::with_id("personal-place-tray")
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "open" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .build(app)?;
             app.manage(PersonalPlaceRuntime {
-                store: Arc::new(store),
+                store,
                 database_error,
                 database_path,
                 legacy_registry_path,
@@ -957,6 +1336,7 @@ pub fn run() {
                 preview_cache_io: Arc::new(Mutex::new(())),
                 safety_backup_dir: app_data_dir.join("backups").join("automatic"),
                 recovery_backup_dir: app_data_dir.join("backups").join("recovery"),
+                usage_store,
             });
             Ok(())
         })
@@ -988,6 +1368,30 @@ pub fn run() {
             update_page,
             move_page,
             delete_page,
+            create_widget,
+            get_widget_summary,
+            update_widget_preferences,
+            get_todo_overview,
+            create_todo_list,
+            update_todo_list,
+            create_todo_item,
+            update_todo_item,
+            set_todo_completed,
+            move_todo_items,
+            delete_todo_items,
+            restore_todo_items,
+            get_focus_state,
+            start_focus,
+            pause_focus,
+            resume_focus,
+            stop_focus,
+            update_focus_settings,
+            get_focus_sessions,
+            get_tracking_state,
+            update_tracking_settings,
+            get_usage_summary,
+            update_tracked_app,
+            clear_usage_history,
             launch_card,
             get_item_preview,
             get_preview_cache_info,

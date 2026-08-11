@@ -2,6 +2,7 @@ use crate::{
     dashboard::{self, DashboardCard, DashboardState, Page},
     ingest,
     storage::WorkspaceStore,
+    todo::{TodoItem, TodoList},
 };
 use rusqlite::{params, MAIN_DB};
 use serde::{Deserialize, Serialize};
@@ -14,7 +15,7 @@ use std::{
 };
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
-const FORMAT_VERSION: u32 = 1;
+const FORMAT_VERSION: u32 = 2;
 const MAX_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -34,6 +35,10 @@ pub struct BackupManifest {
     pub pages: Vec<Page>,
     pub cards: Vec<DashboardCard>,
     pub targets: Vec<BackupTarget>,
+    #[serde(default)]
+    pub todo_lists: Vec<TodoList>,
+    #[serde(default)]
+    pub todo_items: Vec<TodoItem>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -47,6 +52,8 @@ pub struct BackupPreview {
     pub group_count: usize,
     pub note_count: usize,
     pub target_count: usize,
+    pub todo_list_count: usize,
+    pub todo_item_count: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -179,6 +186,28 @@ fn consistent_manifest(store: &WorkspaceStore) -> Result<BackupManifest, String>
             .map_err(|error| format!("無法整理備份目標：{error}"))?;
         targets
     };
+    let todo_lists = {
+        let mut statement = transaction
+            .prepare("SELECT id, title, position, created_at, updated_at, archived_at FROM todo_lists ORDER BY position, id")
+            .map_err(|error| format!("unable to prepare todo list export: {error}"))?;
+        let rows = statement
+            .query_map([], |row| Ok(TodoList {
+                id: row.get(0)?, title: row.get(1)?, position: row.get(2)?, created_at: row.get(3)?, updated_at: row.get(4)?, archived_at: row.get(5)?,
+            }))
+            .map_err(|error| format!("unable to read todo list export: {error}"))?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|error| format!("unable to collect todo list export: {error}"))?
+    };
+    let todo_items = {
+        let mut statement = transaction
+            .prepare("SELECT id, list_id, parent_id, series_id, title, notes, status, priority, due_at, position, recurrence_kind, recurrence_interval, reminder_offset_minutes, reminder_state, created_at, updated_at, completed_at, deleted_at FROM todo_items ORDER BY list_id, parent_id, position, id")
+            .map_err(|error| format!("unable to prepare todo item export: {error}"))?;
+        let rows = statement
+            .query_map([], |row| Ok(TodoItem {
+                id: row.get(0)?, list_id: row.get(1)?, parent_id: row.get(2)?, series_id: row.get(3)?, title: row.get(4)?, notes: row.get(5)?, status: row.get(6)?, priority: row.get(7)?, due_at: row.get(8)?, position: row.get(9)?, recurrence_kind: row.get(10)?, recurrence_interval: row.get(11)?, reminder_offset_minutes: row.get(12)?, reminder_state: row.get(13)?, created_at: row.get(14)?, updated_at: row.get(15)?, completed_at: row.get(16)?, deleted_at: row.get(17)?,
+            }))
+            .map_err(|error| format!("unable to read todo item export: {error}"))?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|error| format!("unable to collect todo item export: {error}"))?
+    };
     transaction
         .commit()
         .map_err(|error| format!("無法完成一致性備份快照：{error}"))?;
@@ -189,6 +218,8 @@ fn consistent_manifest(store: &WorkspaceStore) -> Result<BackupManifest, String>
         pages: dashboard.pages,
         cards: dashboard.cards,
         targets,
+        todo_lists,
+        todo_items,
     })
 }
 
@@ -310,6 +341,12 @@ fn import_manifest(store: &WorkspaceStore, manifest: &BackupManifest) -> Result<
         .transaction()
         .map_err(|error| format!("無法開始還原交易：{error}"))?;
     transaction
+        .execute("DELETE FROM todo_items", [])
+        .map_err(|error| format!("unable to clear todo items: {error}"))?;
+    transaction
+        .execute("DELETE FROM todo_lists", [])
+        .map_err(|error| format!("unable to clear todo lists: {error}"))?;
+    transaction
         .execute("DELETE FROM cards", [])
         .map_err(|error| format!("無法清理舊卡片：{error}"))?;
     transaction
@@ -330,6 +367,18 @@ fn import_manifest(store: &WorkspaceStore, manifest: &BackupManifest) -> Result<
             cards: manifest.cards.clone(),
         },
     )?;
+    for list in &manifest.todo_lists {
+        transaction.execute(
+            "INSERT INTO todo_lists(id, title, position, created_at, updated_at, archived_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![list.id, list.title, list.position, list.created_at, list.updated_at, list.archived_at],
+        ).map_err(|error| format!("unable to restore todo list {}: {error}", list.id))?;
+    }
+    for item in &manifest.todo_items {
+        transaction.execute(
+            "INSERT INTO todo_items(id, list_id, parent_id, series_id, title, notes, status, priority, due_at, position, recurrence_kind, recurrence_interval, reminder_offset_minutes, reminder_state, created_at, updated_at, completed_at, deleted_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+            params![item.id, item.list_id, item.parent_id, item.series_id, item.title, item.notes, item.status, item.priority, item.due_at, item.position, item.recurrence_kind, item.recurrence_interval, item.reminder_offset_minutes, item.reminder_state, item.created_at, item.updated_at, item.completed_at, item.deleted_at],
+        ).map_err(|error| format!("unable to restore todo item {}: {error}", item.id))?;
+    }
     let has_foreign_key_error = {
         let mut statement = transaction
             .prepare("PRAGMA foreign_key_check")
@@ -373,6 +422,8 @@ fn preview_for(manifest: &BackupManifest) -> BackupPreview {
             .filter(|card| card.card_type == "note")
             .count(),
         target_count: manifest.targets.len(),
+        todo_list_count: manifest.todo_lists.len(),
+        todo_item_count: manifest.todo_items.len(),
     }
 }
 
@@ -422,7 +473,7 @@ mod tests {
         fs::create_dir_all(&root).expect("create root");
         let backup_path = root.join("my-place.personal-place");
         let exported = export_backup(&source, &backup_path).expect("export");
-        assert_eq!(exported.preview.format_version, 1);
+        assert_eq!(exported.preview.format_version, 2);
         assert_eq!(exported.preview.page_count, 1);
         assert_eq!(exported.preview.note_count, 1);
         assert_eq!(inspect_backup(&backup_path).unwrap(), exported.preview);
@@ -444,6 +495,25 @@ mod tests {
                 .unwrap(),
             "ok"
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn version_two_backup_round_trips_todo_data() {
+        let source = initialized_store();
+        let (overview, list_id) = source.create_todo_list("學習").expect("create list");
+        assert!(overview.lists.iter().any(|list| list.id == list_id));
+        source.create_todo_item(&list_id, &crate::todo::TodoItemInput {
+            title: "完成練習".to_string(), notes: "保持本機資料".to_string(), priority: "high".to_string(), due_at: None,
+            recurrence_kind: "none".to_string(), recurrence_interval: 1, reminder_offset_minutes: None, parent_id: None,
+        }).expect("create todo");
+        let root = temporary_root("todo-round-trip");
+        fs::create_dir_all(&root).expect("create root");
+        let path = root.join("todo.personal-place");
+        export_backup(&source, &path).expect("export");
+        let destination = initialized_store();
+        restore_backup(&destination, &path, &root.join("automatic")).expect("restore");
+        assert_eq!(source.get_todo_overview().unwrap(), destination.get_todo_overview().unwrap());
         let _ = fs::remove_dir_all(root);
     }
 
@@ -527,6 +597,8 @@ mod tests {
             resume_note: String::new(),
             launch_enabled: false,
             last_opened_at: None,
+            widget_kind: None,
+            widget_resource_id: None,
         });
         let mut child_group = manifest.cards.last().unwrap().clone();
         child_group.id = "group-child".to_string();

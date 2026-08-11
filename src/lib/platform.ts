@@ -6,6 +6,7 @@ import type {
   ItemTone,
   LauncherItem,
   WorkspaceState,
+  WidgetKind,
 } from "../types";
 
 export interface LauncherPreview {
@@ -83,6 +84,106 @@ export interface CreateNoteResult {
   noteId: string;
 }
 
+export interface CreateWidgetResult {
+  dashboard: DashboardState;
+  widgetId: string;
+}
+
+export interface WidgetSummaryItem {
+  id: string;
+  title: string;
+  dueAt: number | null;
+  priority: TodoPriority;
+}
+
+export interface WidgetSummary {
+  cardId: string;
+  widgetKind: WidgetKind;
+  title: string;
+  primaryValue: string;
+  secondaryValue: string;
+  items: WidgetSummaryItem[];
+}
+
+export type TodoPriority = "none" | "low" | "medium" | "high";
+export type TodoStatus = "active" | "completed" | "deleted";
+export type TodoRecurrence = "none" | "daily" | "weekdays" | "weekly" | "monthly" | "yearly" | "custom_days" | "custom_weeks" | "custom_months";
+
+export interface TodoList {
+  id: string;
+  title: string;
+  position: number;
+  createdAt: number;
+  updatedAt: number;
+  archivedAt: number | null;
+}
+
+export interface TodoItem {
+  id: string;
+  listId: string;
+  parentId: string | null;
+  seriesId: string | null;
+  title: string;
+  notes: string;
+  status: TodoStatus;
+  priority: TodoPriority;
+  dueAt: number | null;
+  position: number;
+  recurrenceKind: TodoRecurrence;
+  recurrenceInterval: number;
+  reminderOffsetMinutes: number | null;
+  reminderState: "none" | "pending" | "delivered" | "missed";
+  createdAt: number;
+  updatedAt: number;
+  completedAt: number | null;
+  deletedAt: number | null;
+}
+
+export interface TodoOverview {
+  lists: TodoList[];
+  items: TodoItem[];
+}
+
+export interface TodoItemInput {
+  title: string;
+  notes: string;
+  priority: TodoPriority;
+  dueAt: number | null;
+  recurrenceKind: TodoRecurrence;
+  recurrenceInterval: number;
+  reminderOffsetMinutes: number | null;
+  parentId: string | null;
+}
+
+export interface FocusSettings {
+  focusMinutes: number;
+  shortBreakMinutes: number;
+  longBreakMinutes: number;
+  longBreakInterval: number;
+  autoStartFocus: boolean;
+  autoStartBreak: boolean;
+  notificationsEnabled: boolean;
+}
+
+export interface FocusState {
+  status: "idle" | "running" | "paused";
+  phase: "focus" | "shortBreak" | "longBreak";
+  cycleCount: number;
+  startedAt: number | null;
+  endsAt: number | null;
+  remainingSeconds: number | null;
+  linkedTodoId: string | null;
+  linkedGroupId: string | null;
+  updatedAt: number;
+  settings: FocusSettings;
+}
+export interface FocusSession { id: string; phase: FocusState["phase"]; plannedSeconds: number; actualSeconds: number; outcome: string; startedAt: number; endedAt: number; }
+
+export interface TrackingSettings { enabled: boolean; idleSeconds: number; }
+export interface UsageApp { appId: string; displayName: string; seconds: number; excluded: boolean; }
+export interface UsageSegment { appId: string; displayName: string; startedAt: number; endedAt: number; }
+export interface UsageSummary { totalSeconds: number; apps: UsageApp[]; segments: UsageSegment[]; }
+
 export type GroupLaunchStatus = "success" | "failed" | "missing" | "skipped";
 
 export interface GroupLaunchItemResult {
@@ -100,14 +201,14 @@ export interface GroupLaunchResult {
 
 export interface DashboardSearchResult {
   id: string;
-  resultType: "page" | "target" | "group" | "note";
+  resultType: "page" | "target" | "group" | "note" | "widget";
   title: string;
   subtitle: string;
   pageId: string;
   pageName: string;
   groupId?: string;
   groupName?: string;
-  cardType?: "target" | "group" | "note";
+  cardType?: "target" | "group" | "note" | "widget";
   score: number;
 }
 
@@ -249,6 +350,73 @@ export async function createNote(
     request: { pageId, parentGroupId },
   });
 }
+
+export async function createWidget(
+  pageId: string,
+  parentGroupId: string | null,
+  widgetKind: WidgetKind,
+): Promise<CreateWidgetResult> {
+  return invoke<CreateWidgetResult>("create_widget", {
+    request: { pageId, parentGroupId, widgetKind },
+  });
+}
+
+export async function getWidgetSummary(cardId: string): Promise<WidgetSummary> {
+  return invoke<WidgetSummary>("get_widget_summary", { request: { cardId } });
+}
+
+export async function updateWidgetPreferences(cardId: string, listId: string): Promise<DashboardState> {
+  return invoke<DashboardState>("update_widget_preferences", { request: { cardId, listId } });
+}
+
+export async function getTodoOverview(): Promise<TodoOverview> {
+  return invoke<TodoOverview>("get_todo_overview");
+}
+
+export async function createTodoList(title: string): Promise<TodoOverview> {
+  return invoke<TodoOverview>("create_todo_list", { request: { title } });
+}
+
+export async function updateTodoList(listId: string, title: string, archived: boolean): Promise<TodoOverview> {
+  return invoke<TodoOverview>("update_todo_list", { request: { listId, title, archived } });
+}
+
+export async function createTodoItem(listId: string, item: TodoItemInput): Promise<TodoOverview> {
+  return invoke<TodoOverview>("create_todo_item", { request: { listId, item } });
+}
+
+export async function updateTodoItem(itemId: string, item: TodoItemInput): Promise<TodoOverview> {
+  return invoke<TodoOverview>("update_todo_item", { request: { itemId, item } });
+}
+
+export async function setTodoCompleted(itemId: string, completed: boolean): Promise<TodoOverview> {
+  return invoke<TodoOverview>("set_todo_completed", { request: { itemId, completed } });
+}
+
+export async function moveTodoItems(itemIds: string[], listId: string, parentId: string | null, targetIndex: number): Promise<TodoOverview> {
+  return invoke<TodoOverview>("move_todo_items", { request: { itemIds, listId, parentId, targetIndex } });
+}
+
+export async function deleteTodoItems(itemIds: string[]): Promise<TodoOverview> {
+  return invoke<TodoOverview>("delete_todo_items", { request: { itemIds } });
+}
+
+export async function restoreTodoItems(itemIds: string[]): Promise<TodoOverview> {
+  return invoke<TodoOverview>("restore_todo_items", { request: { itemIds } });
+}
+
+export async function getFocusState(): Promise<FocusState> { return invoke<FocusState>("get_focus_state"); }
+export async function startFocus(request: { phase?: FocusState["phase"]; linkedTodoId?: string | null; linkedGroupId?: string | null } = {}): Promise<FocusState> { return invoke<FocusState>("start_focus", { request }); }
+export async function pauseFocus(): Promise<FocusState> { return invoke<FocusState>("pause_focus"); }
+export async function resumeFocus(): Promise<FocusState> { return invoke<FocusState>("resume_focus"); }
+export async function stopFocus(outcome: "stopped" | "skipped"): Promise<FocusState> { return invoke<FocusState>("stop_focus", { request: { outcome } }); }
+export async function updateFocusSettings(settings: FocusSettings): Promise<FocusState> { return invoke<FocusState>("update_focus_settings", { settings }); }
+export async function getFocusSessions(from: number, to: number): Promise<FocusSession[]> { return invoke<FocusSession[]>("get_focus_sessions", { request: { from, to } }); }
+export async function getTrackingState(): Promise<TrackingSettings> { return invoke<TrackingSettings>("get_tracking_state"); }
+export async function updateTrackingSettings(settings: TrackingSettings): Promise<TrackingSettings> { return invoke<TrackingSettings>("update_tracking_settings", { settings }); }
+export async function getUsageSummary(from: number, to: number): Promise<UsageSummary> { return invoke<UsageSummary>("get_usage_summary", { request: { from, to } }); }
+export async function updateTrackedApp(appId: string, displayName: string, excluded: boolean): Promise<void> { await invoke("update_tracked_app", { request: { appId, displayName, excluded } }); }
+export async function clearUsageHistory(appId?: string): Promise<void> { await invoke("clear_usage_history", { request: { appId } }); }
 
 export async function updateNote(
   cardId: string,

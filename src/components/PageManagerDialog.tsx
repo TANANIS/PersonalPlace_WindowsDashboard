@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Page } from "../types";
+import { zhTW } from "../i18n/zh-TW";
 import { useModalFocus } from "../lib/accessibility";
 
 const PAGE_SYMBOLS = ["⌂", "○", "◇", "✦", "▦", "◎", "☕", "♫"];
@@ -85,13 +86,18 @@ export function PageManagerDialog({
                       [page.id]: { ...draft, name: event.target.value },
                     }))
                   }
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && changed && draft.name.trim()) {
+                      onUpdate(page.id, draft.name, draft.symbol);
+                    }
+                  }}
                 />
-                <button type="button" disabled={busy || !changed || !draft.name.trim()} onClick={() => onUpdate(page.id, draft.name, draft.symbol)}>
-                  保存
+                <button className="page-manager-icon-action" type="button" aria-label={zhTW.pages.save} title={zhTW.pages.save} disabled={busy || !changed || !draft.name.trim()} onClick={() => onUpdate(page.id, draft.name, draft.symbol)}>
+                  ✓
                 </button>
-                <button type="button" aria-label="向前移動" disabled={busy || index === 0} onClick={() => onMove(page.id, -1)}>↑</button>
-                <button type="button" aria-label="向後移動" disabled={busy || index === pages.length - 1} onClick={() => onMove(page.id, 1)}>↓</button>
-                <button type="button" className="danger-text" disabled={busy || pages.length === 1} onClick={() => onDelete(page)}>刪除</button>
+                <button className="page-manager-icon-action" type="button" aria-label={zhTW.pages.moveUp} title={zhTW.pages.moveUp} disabled={busy || index === 0} onClick={() => onMove(page.id, -1)}>↑</button>
+                <button className="page-manager-icon-action" type="button" aria-label={zhTW.pages.moveDown} title={zhTW.pages.moveDown} disabled={busy || index === pages.length - 1} onClick={() => onMove(page.id, 1)}>↓</button>
+                <button className="page-manager-icon-action danger-text" type="button" aria-label={zhTW.pages.delete} title={zhTW.pages.delete} disabled={busy || pages.length === 1} onClick={() => onDelete(page)}>×</button>
               </div>
             );
           })}

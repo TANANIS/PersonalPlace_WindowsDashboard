@@ -8,7 +8,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,7 +73,7 @@ impl WorkspaceStore {
         let current_version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .map_err(|error| format!("無法讀取資料結構版本：{error}"))?;
-        if current_version == 2 {
+        if current_version > 0 && current_version < SCHEMA_VERSION {
             create_schema_backup(&connection, database_path)?;
         }
         configure_and_migrate(&connection)?;
@@ -350,10 +350,13 @@ fn create_schema_backup(connection: &Connection, database_path: &Path) -> Result
         .join("schema-migrations");
     fs::create_dir_all(&backup_dir)
         .map_err(|error| format!("無法建立 schema 遷移備份資料夾：{error}"))?;
-    let backup_path = backup_dir.join(format!("personal-place-v2-{timestamp}.db"));
+    let current_version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|error| format!("無法讀取遷移前資料版本：{error}"))?;
+    let backup_path = backup_dir.join(format!("personal-place-v{current_version}-{timestamp}.db"));
     connection
         .backup(MAIN_DB, &backup_path, None)
-        .map_err(|error| format!("無法在 schema v3 遷移前建立一致性備份：{error}"))?;
+        .map_err(|error| format!("無法在 schema 遷移前建立一致性備份：{error}"))?;
     Ok(backup_path)
 }
 
@@ -471,6 +474,140 @@ fn configure_and_migrate(connection: &Connection) -> Result<(), String> {
         if let Err(error) = migration {
             let _ = connection.execute_batch("ROLLBACK;");
             return Err(format!("無法將 Personal Place 升級為 schema v3：{error}"));
+        }
+    }
+
+    let version_after_v3: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|error| format!("無法確認 schema v3：{error}"))?;
+    if version_after_v3 == 3 {
+        let migration = connection.execute_batch(
+            "BEGIN IMMEDIATE;
+             CREATE TABLE cards_v4(
+                 id TEXT PRIMARY KEY,
+                 page_id TEXT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+                 parent_group_id TEXT REFERENCES cards_v4(id) ON DELETE CASCADE,
+                 card_type TEXT NOT NULL CHECK(card_type IN ('target', 'group', 'note', 'widget')),
+                 target_id TEXT REFERENCES targets(id),
+                 title TEXT NOT NULL,
+                 subtitle TEXT NOT NULL,
+                 kind TEXT NOT NULL,
+                 symbol TEXT NOT NULL,
+                 tone TEXT NOT NULL,
+                 size TEXT NOT NULL CHECK(size IN ('square', 'wide')),
+                 position INTEGER NOT NULL,
+                 note_text TEXT NOT NULL DEFAULT '',
+                 resume_note TEXT NOT NULL DEFAULT '',
+                 launch_enabled INTEGER NOT NULL DEFAULT 0 CHECK(launch_enabled IN (0, 1)),
+                 last_opened_at TEXT,
+                 widget_kind TEXT CHECK(widget_kind IN ('todo', 'focus', 'usage')),
+                 widget_resource_id TEXT,
+                 CHECK(
+                     (card_type = 'target' AND target_id IS NOT NULL AND widget_kind IS NULL AND widget_resource_id IS NULL) OR
+                     (card_type IN ('group', 'note') AND target_id IS NULL AND widget_kind IS NULL AND widget_resource_id IS NULL) OR
+                     (card_type = 'widget' AND target_id IS NULL AND widget_kind IS NOT NULL)
+                 ),
+                 CHECK(card_type != 'group' OR parent_group_id IS NULL),
+                 CHECK(card_type != 'widget' OR launch_enabled = 0)
+             );
+             INSERT INTO cards_v4(
+                 id, page_id, parent_group_id, card_type, target_id,
+                 title, subtitle, kind, symbol, tone, size, position,
+                 note_text, resume_note, launch_enabled, last_opened_at,
+                 widget_kind, widget_resource_id
+             )
+             SELECT id, page_id, parent_group_id, card_type, target_id,
+                    title, subtitle, kind, symbol, tone, size, position,
+                    note_text, resume_note, launch_enabled, last_opened_at,
+                    NULL, NULL
+             FROM cards;
+             DROP TABLE cards;
+             ALTER TABLE cards_v4 RENAME TO cards;
+             CREATE INDEX cards_page_position ON cards(page_id, parent_group_id, position);
+             CREATE INDEX cards_parent_group ON cards(parent_group_id, position);
+
+             CREATE TABLE todo_lists(
+                 id TEXT PRIMARY KEY,
+                 title TEXT NOT NULL,
+                 position INTEGER NOT NULL,
+                 created_at INTEGER NOT NULL,
+                 updated_at INTEGER NOT NULL,
+                 archived_at INTEGER
+             );
+             CREATE TABLE todo_items(
+                 id TEXT PRIMARY KEY,
+                 list_id TEXT NOT NULL REFERENCES todo_lists(id),
+                 parent_id TEXT REFERENCES todo_items(id),
+                 series_id TEXT,
+                 title TEXT NOT NULL,
+                 notes TEXT NOT NULL DEFAULT '',
+                 status TEXT NOT NULL CHECK(status IN ('active', 'completed', 'deleted')),
+                 priority TEXT NOT NULL CHECK(priority IN ('none', 'low', 'medium', 'high')),
+                 due_at INTEGER,
+                 position INTEGER NOT NULL,
+                 recurrence_kind TEXT NOT NULL DEFAULT 'none' CHECK(recurrence_kind IN ('none', 'daily', 'weekdays', 'weekly', 'monthly', 'yearly', 'custom_days', 'custom_weeks', 'custom_months')),
+                 recurrence_interval INTEGER NOT NULL DEFAULT 1 CHECK(recurrence_interval BETWEEN 1 AND 365),
+                 reminder_offset_minutes INTEGER CHECK(reminder_offset_minutes BETWEEN 0 AND 525600),
+                 reminder_state TEXT NOT NULL DEFAULT 'none' CHECK(reminder_state IN ('none', 'pending', 'delivered', 'missed')),
+                 created_at INTEGER NOT NULL,
+                 updated_at INTEGER NOT NULL,
+                 completed_at INTEGER,
+                 deleted_at INTEGER
+             );
+             CREATE INDEX todo_items_list_position ON todo_items(list_id, parent_id, position);
+             CREATE INDEX todo_items_due ON todo_items(status, due_at);
+
+             CREATE TABLE focus_settings(
+                 id INTEGER PRIMARY KEY CHECK(id = 1),
+                 focus_minutes INTEGER NOT NULL DEFAULT 25,
+                 short_break_minutes INTEGER NOT NULL DEFAULT 5,
+                 long_break_minutes INTEGER NOT NULL DEFAULT 15,
+                 long_break_interval INTEGER NOT NULL DEFAULT 4,
+                 auto_start_focus INTEGER NOT NULL DEFAULT 0 CHECK(auto_start_focus IN (0, 1)),
+                 auto_start_break INTEGER NOT NULL DEFAULT 0 CHECK(auto_start_break IN (0, 1)),
+                 notifications_enabled INTEGER NOT NULL DEFAULT 1 CHECK(notifications_enabled IN (0, 1))
+             );
+             INSERT INTO focus_settings(id) VALUES(1);
+             CREATE TABLE focus_state(
+                 id INTEGER PRIMARY KEY CHECK(id = 1),
+                 status TEXT NOT NULL DEFAULT 'idle' CHECK(status IN ('idle', 'running', 'paused')),
+                 phase TEXT NOT NULL DEFAULT 'focus' CHECK(phase IN ('focus', 'shortBreak', 'longBreak')),
+                 cycle_count INTEGER NOT NULL DEFAULT 0,
+                 started_at INTEGER,
+                 ends_at INTEGER,
+                 remaining_seconds INTEGER,
+                 linked_todo_id TEXT,
+                 linked_group_id TEXT,
+                 updated_at INTEGER NOT NULL DEFAULT 0
+             );
+             INSERT INTO focus_state(id) VALUES(1);
+             CREATE TABLE focus_sessions(
+                 id TEXT PRIMARY KEY,
+                 phase TEXT NOT NULL CHECK(phase IN ('focus', 'shortBreak', 'longBreak')),
+                 planned_seconds INTEGER NOT NULL,
+                 actual_seconds INTEGER NOT NULL,
+                 outcome TEXT NOT NULL CHECK(outcome IN ('completed', 'stopped', 'skipped')),
+                 started_at INTEGER NOT NULL,
+                 ended_at INTEGER NOT NULL,
+                 linked_todo_id TEXT,
+                 linked_group_id TEXT
+             );
+             CREATE INDEX focus_sessions_started ON focus_sessions(started_at DESC);
+
+             CREATE TABLE app_settings(
+                 key TEXT PRIMARY KEY,
+                 value TEXT NOT NULL
+             );
+             INSERT INTO app_settings(key, value) VALUES
+                 ('autostartEnabled', 'false'),
+                 ('trackingEnabled', 'false'),
+                 ('idleThresholdSeconds', '300');
+             PRAGMA user_version = 4;
+             COMMIT;",
+        );
+        if let Err(error) = migration {
+            let _ = connection.execute_batch("ROLLBACK;");
+            return Err(format!("無法將 Personal Place 升級為 schema v4：{error}"));
         }
     }
 

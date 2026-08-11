@@ -8,6 +8,27 @@ export const zhTW = {
     placeSummary: (count: number) => `${count} 個項目的地方`,
     keyboardReorderHint: "Alt 加方向鍵可調整順序",
   },
+  sidebar: {
+    edit: "整理",
+    finishEditing: "完成",
+    editTitle: "進入整理模式",
+    finishEditingTitle: "完成整理",
+    settings: "設定",
+  },
+  notes: {
+    empty: "空白筆記",
+    edit: "編輯",
+    close: "關閉",
+    closeViewer: "關閉筆記",
+    returnToViewer: "返回閱讀",
+    saveAndReturn: "儲存並返回",
+  },
+  pages: {
+    save: "儲存頁面",
+    moveUp: "向前移動",
+    moveDown: "向後移動",
+    delete: "刪除頁面",
+  },
   guide: {
     settingsTitle: "新手教學",
     settingsDescription: "用四個步驟熟悉加入、整理與開啟內容",

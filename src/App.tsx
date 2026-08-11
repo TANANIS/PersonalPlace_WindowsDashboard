@@ -12,12 +12,17 @@ import { CardEditDialog, type CardEditValues } from "./components/CardEditDialog
 import { PageManagerDialog } from "./components/PageManagerDialog";
 import { GroupDetailView } from "./components/GroupDetailView";
 import { NoteEditDialog } from "./components/NoteEditDialog";
+import { NoteViewDialog } from "./components/NoteViewDialog";
 import { GlobalSearchDialog } from "./components/GlobalSearchDialog";
 import { TargetRepairDialog } from "./components/TargetRepairDialog";
 import { BackupDialog } from "./components/BackupDialog";
 import { RecoveryScreen } from "./components/RecoveryScreen";
 import { UndoBar } from "./components/UndoBar";
 import { GuideDialog } from "./components/GuideDialog";
+import { TodoDialog } from "./components/TodoDialog";
+import { FocusDialogSafe } from "./FocusDialogSafe";
+import { UsageDialog } from "./components/UsageDialog";
+import { WidgetCardPreview } from "./components/WidgetCardPreview";
 import { defaultState } from "./data/defaults";
 import { performanceDemoState, placesDemoState } from "./data/demo";
 import { changeSelection, keyboardReorderTarget } from "./lib/editing";
@@ -29,6 +34,7 @@ import {
   checkTargets,
   createGroup,
   createNote,
+  createWidget,
   createPage,
   deleteCards,
   deletePage,
@@ -37,6 +43,9 @@ import {
   getLauncherPreview,
   getPreviewCacheInfo,
   getRecoveryInfo,
+  getWidgetSummary,
+  getFocusState,
+  getUsageSummary,
   inspectBackup,
   ingestItems,
   initializeWorkspace,
@@ -49,6 +58,11 @@ import {
   platformErrorMessage,
   platformErrorCode,
   setLaunchEnabled,
+  setTodoCompleted,
+  startFocus,
+  pauseFocus,
+  resumeFocus,
+  stopFocus,
   searchDashboard,
   undoLast,
   ungroup,
@@ -71,6 +85,9 @@ import type {
   DashboardSearchResult,
   TargetAvailability,
   RecoveryInfo,
+  WidgetSummary,
+  FocusState,
+  UsageSummary,
 } from "./lib/platform";
 import type {
   DashboardCard,
@@ -107,6 +124,7 @@ function dashboardFromLegacy(state: WorkspaceState): DashboardState {
 function kindLabel(card: DashboardCard): string {
   if (card.cardType === "group") return "PLACE";
   if (card.cardType === "note") return "NOTE";
+  if (card.cardType === "widget") return "TOOL";
   if (card.kind === "web") return "WEB";
   if (card.kind === "local") return "LOCAL";
   return "APP";
@@ -158,7 +176,16 @@ function App() {
   const [cacheInfo, setCacheInfo] = useState<PreviewCacheInfo | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
   const [cardBeingEdited, setCardBeingEdited] = useState<DashboardCard | null>(null);
+  const [widgetSummaries, setWidgetSummaries] = useState<Record<string, WidgetSummary>>({});
+  const [focusState, setFocusState] = useState<FocusState | null>(null);
+  const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
+  const [widgetActionBusy, setWidgetActionBusy] = useState(false);
+  const [openTodoWidgetId, setOpenTodoWidgetId] = useState<string | null>(null);
+  const [openFocusWidgetId, setOpenFocusWidgetId] = useState<string | null>(null);
+  const [openUsageWidgetId, setOpenUsageWidgetId] = useState<string | null>(null);
+  const [noteBeingViewed, setNoteBeingViewed] = useState<DashboardCard | null>(null);
   const [noteBeingEdited, setNoteBeingEdited] = useState<DashboardCard | null>(null);
+  const [returnToNoteView, setReturnToNoteView] = useState(false);
   const [cardEditError, setCardEditError] = useState<string | null>(null);
   const [persistenceReady, setPersistenceReady] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
@@ -346,6 +373,49 @@ function App() {
     void getPreviewCacheInfo().then(setCacheInfo).catch(() => setCacheInfo(null));
   }, [settingsOpen]);
 
+  useEffect(() => {
+    const visibleWidgets = (openGroupId
+      ? pageCards.filter((card) => card.parentGroupId === openGroupId)
+      : topLevelCards
+    ).filter((card) => card.cardType === "widget");
+    if (!isTauriRuntime()) {
+      setWidgetSummaries(Object.fromEntries(visibleWidgets.map((card) => [card.id, {
+        cardId: card.id,
+        widgetKind: card.widgetKind ?? "todo",
+        title: card.title,
+        primaryValue: card.widgetKind === "focus" ? "25:00" : card.widgetKind === "usage" ? "尚未啟用" : "開始規劃今天",
+        secondaryValue: card.widgetKind === "usage" ? "使用追蹤預設關閉" : "點擊查看完整內容",
+        items: [],
+      }])));
+      return;
+    }
+    let cancelled = false;
+    void Promise.all(visibleWidgets.map(async (card) => {
+      try { return [card.id, await getWidgetSummary(card.id)] as const; }
+      catch { return null; }
+    })).then((entries) => {
+      if (!cancelled) setWidgetSummaries(Object.fromEntries(entries.filter((entry): entry is readonly [string, WidgetSummary] => entry !== null)));
+    });
+    return () => { cancelled = true; };
+  }, [openGroupId, pageCards, topLevelCards]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    const hasFocus = (openGroupId ? pageCards.filter((card) => card.parentGroupId === openGroupId) : topLevelCards).some((card) => card.cardType === "widget" && card.widgetKind === "focus");
+    const hasUsage = (openGroupId ? pageCards.filter((card) => card.parentGroupId === openGroupId) : topLevelCards).some((card) => card.cardType === "widget" && card.widgetKind === "usage");
+    let disposed = false;
+    const refresh = () => {
+      if (hasFocus) void getFocusState().then((next) => !disposed && setFocusState(next)).catch(() => undefined);
+      if (hasUsage) {
+        const from = new Date(); from.setHours(0, 0, 0, 0);
+        void getUsageSummary(Math.floor(from.getTime() / 1000), Math.floor(Date.now() / 1000)).then((next) => !disposed && setUsageSummary(next)).catch(() => undefined);
+      }
+    };
+    refresh();
+    const timer = window.setInterval(refresh, hasFocus ? 5_000 : 30_000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [openGroupId, pageCards, topLevelCards]);
+
   function adoptDashboard(next: DashboardState) {
     stateRef.current = next;
     setState(next);
@@ -396,10 +466,7 @@ function App() {
     parentGroupId = openGroupIdRef.current,
   ) {
     if (inputs.length === 0) return;
-    if (!canStartNewIngest(dropBusyRef.current, Boolean(dropResultRef.current))) {
-      if (dropResultRef.current) setNotice("請先關閉上一批新增結果，再拖入新的項目。");
-      return;
-    }
+    if (!canStartNewIngest(dropBusyRef.current, Boolean(dropResultRef.current))) return;
     dropApprovalsRef.current.clear();
     dropBusyRef.current = true;
     setDropBusy(true);
@@ -500,6 +567,41 @@ function App() {
     };
   }, []);
 
+  async function refreshWidgetSummary(cardId: string) {
+    const summary = await getWidgetSummary(cardId);
+    setWidgetSummaries((current) => ({ ...current, [cardId]: summary }));
+  }
+
+  async function toggleWidgetTodo(cardId: string, itemId: string, completed: boolean) {
+    if (widgetActionBusy) return;
+    setWidgetActionBusy(true);
+    try {
+      await setTodoCompleted(itemId, completed);
+      await refreshWidgetSummary(cardId);
+    } catch (reason) {
+      setNotice(platformErrorMessage(reason, "無法更新待辦事項。"));
+    } finally {
+      setWidgetActionBusy(false);
+    }
+  }
+
+  async function controlWidgetFocus(cardId: string, action: "start" | "pause" | "resume" | "skip" | "stop") {
+    if (widgetActionBusy) return;
+    setWidgetActionBusy(true);
+    try {
+      const next = action === "start" ? await startFocus({ phase: focusState?.phase ?? "focus" })
+        : action === "pause" ? await pauseFocus()
+          : action === "resume" ? await resumeFocus()
+            : await stopFocus(action === "skip" ? "skipped" : "stopped");
+      setFocusState(next);
+      await refreshWidgetSummary(cardId);
+    } catch (reason) {
+      setNotice(platformErrorMessage(reason, "無法控制專注計時。"));
+    } finally {
+      setWidgetActionBusy(false);
+    }
+  }
+
   async function launch(card: DashboardCard) {
     if (editing) return;
     if (card.cardType === "group") {
@@ -513,7 +615,13 @@ function App() {
       return;
     }
     if (card.cardType === "note") {
-      setNoteBeingEdited(card);
+      setNoteBeingViewed(card);
+      return;
+    }
+    if (card.cardType === "widget") {
+      if (card.widgetKind === "todo") setOpenTodoWidgetId(card.id);
+      else if (card.widgetKind === "focus") setOpenFocusWidgetId(card.id);
+      else setOpenUsageWidgetId(card.id);
       return;
     }
     try {
@@ -545,7 +653,10 @@ function App() {
       const result = await createNote(activePage.id, parentGroupId);
       adoptDashboard(result.dashboard);
       const note = result.dashboard.cards.find((card) => card.id === result.noteId);
-      if (note) setNoteBeingEdited(note);
+      if (note) {
+        setReturnToNoteView(true);
+        setNoteBeingEdited(note);
+      }
       setUndoMessage("已新增筆記");
     } catch (error) {
       setNotice(platformErrorMessage(error, "無法新增筆記。"));
@@ -637,7 +748,13 @@ function App() {
       return;
     }
     if (card.cardType === "note") {
-      setNoteBeingEdited(card);
+      setNoteBeingViewed(card);
+      return;
+    }
+    if (card.cardType === "widget") {
+      if (card.widgetKind === "todo") setOpenTodoWidgetId(card.id);
+      else if (card.widgetKind === "focus") setOpenFocusWidgetId(card.id);
+      else setOpenUsageWidgetId(card.id);
       return;
     }
     void launchCard(card.id).catch((error) => {
@@ -658,6 +775,29 @@ function App() {
     );
     setSelectedIds(result.selected);
     setSelectionAnchor(result.anchorId);
+  }
+
+  function toggleEditingMode() {
+    setEditing((current) => !current);
+    setSelectedIds(new Set());
+    setSelectionAnchor(null);
+    setDraggedId(null);
+  }
+
+  function editNote(note: DashboardCard, returnToViewer: boolean) {
+    setNoteBeingViewed(null);
+    setReturnToNoteView(returnToViewer);
+    setNoteBeingEdited(note);
+  }
+
+  function closeNoteEditor(noteId: string) {
+    setNoteBeingEdited(null);
+    if (!returnToNoteView) return;
+    const latest = stateRef.current.cards.find(
+      (card) => card.id === noteId && card.cardType === "note",
+    );
+    if (latest) setNoteBeingViewed(latest);
+    setReturnToNoteView(false);
   }
 
   async function createSelectedGroup() {
@@ -746,6 +886,9 @@ function App() {
     : [];
   const currentNoteBeingEdited = noteBeingEdited
     ? state.cards.find((card) => card.id === noteBeingEdited.id && card.cardType === "note") ?? null
+    : null;
+  const currentNoteBeingViewed = noteBeingViewed
+    ? state.cards.find((card) => card.id === noteBeingViewed.id && card.cardType === "note") ?? null
     : null;
   const repairCard = repairCardId
     ? state.cards.find((card) => card.id === repairCardId && card.cardType === "target") ?? null
@@ -845,9 +988,22 @@ function App() {
             </button>
           )}
         </nav>
-        <button className="workspace-button settings-button" onClick={() => setSettingsOpen(true)} title="設定">
-          <span aria-hidden="true">⚙</span><small>設定</small>
-        </button>
+        <div className="sidebar-footer-actions">
+          <button
+            className={`workspace-button edit-mode-button${editing ? " is-active" : ""}`}
+            type="button"
+            disabled={!persistenceReady || mutationBusy}
+            aria-pressed={editing}
+            onClick={toggleEditingMode}
+            title={editing ? zhTW.sidebar.finishEditingTitle : zhTW.sidebar.editTitle}
+          >
+            <span aria-hidden="true">{editing ? "✓" : "✎"}</span>
+            <small>{editing ? zhTW.sidebar.finishEditing : zhTW.sidebar.edit}</small>
+          </button>
+          <button className="workspace-button settings-button" onClick={() => setSettingsOpen(true)} title="設定">
+            <span aria-hidden="true">⚙</span><small>{zhTW.sidebar.settings}</small>
+          </button>
+        </div>
       </aside>
 
       <main className={`main-content${openGroup ? " is-place-detail" : ""}`}>
@@ -856,16 +1012,16 @@ function App() {
             group={openGroup}
             cards={openGroupCards}
             previews={previews}
+            widgetSummaries={widgetSummaries}
             targetStatuses={targetStatuses}
             editing={editing}
             busy={mutationBusy}
             onBack={leaveGroup}
-            onToggleEditing={() => setEditing((current) => !current)}
             onAddTarget={() => setAddGroupId(openGroup.id)}
             onCreateNote={() => void createNoteInContainer(openGroup.id)}
             onOpenCard={(card) => void launch(card)}
             onEditCard={(card) => {
-              if (card.cardType === "note") setNoteBeingEdited(card);
+              if (card.cardType === "note") editNote(card, false);
               else {
                 setCardEditError(null);
                 setCardBeingEdited(card);
@@ -902,11 +1058,6 @@ function App() {
           <div className="topbar-actions">
             <label className="search-box"><span aria-hidden="true">⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋這個頁面" /></label>
             <button type="button" className="global-search-button" onClick={() => setGlobalSearchOpen(true)} title="搜尋所有地方 (Ctrl+K)">Ctrl K</button>
-            <button className="button secondary" disabled={!persistenceReady || mutationBusy} onClick={() => {
-              setEditing((current) => !current);
-              setSelectedIds(new Set());
-              setSelectionAnchor(null);
-            }}>{editing ? "完成" : "編輯"}</button>
             <button className="button secondary" disabled={!persistenceReady || mutationBusy} onClick={() => void createNoteInContainer(null)}>＋ 筆記</button>
             <button className="button primary" disabled={!persistenceReady || mutationBusy} onClick={() => setDialogOpen(true)}>＋ 新增</button>
           </div>
@@ -953,14 +1104,15 @@ function App() {
             const children = card.cardType === "group"
               ? pageCards.filter((candidate) => candidate.parentGroupId === card.id).sort((a, b) => a.position - b.position)
               : [];
+            const widgetSummary = card.cardType === "widget" ? widgetSummaries[card.id] : null;
             const selected = selectedIds.has(card.id);
             return (
               <article
-                className={`launcher-card size-${card.size} tone-${card.tone}${preview ? ` has-preview preview-${preview.kind}` : ""}${selected ? " is-selected" : ""}${card.cardType === "group" ? " group-card" : ""}${targetProblem ? " is-target-missing" : ""}`}
+                className={`launcher-card size-${card.size} tone-${card.tone}${preview ? ` has-preview preview-${preview.kind}` : ""}${selected ? " is-selected" : ""}${card.cardType === "group" ? " group-card" : ""}${card.cardType === "note" ? " note-card" : ""}${card.cardType === "widget" ? " widget-card" : ""}${targetProblem ? " is-target-missing" : ""}`}
                 key={card.id}
                 role={editing ? "option" : "button"}
                 aria-selected={editing ? selected : undefined}
-                aria-label={`${card.title}，${card.cardType === "group" ? zhTW.card.placeSummary(children.length) : card.subtitle}${editing ? `；${zhTW.card.keyboardReorderHint}` : ""}`}
+                aria-label={`${card.title}，${card.cardType === "group" ? zhTW.card.placeSummary(children.length) : card.cardType === "note" ? card.noteText.trim() || zhTW.notes.empty : card.subtitle}${editing ? `；${zhTW.card.keyboardReorderHint}` : ""}`}
                 tabIndex={0}
                 draggable={editing && !mutationBusy}
                 onDragStart={() => setDraggedId(card.id)}
@@ -1033,14 +1185,32 @@ function App() {
                       }}
                     />
                   ) : <h2>{card.title}</h2>}
-                  <p>{card.cardType === "group" ? `${children.length} 個項目` : card.subtitle}</p>
+                  {card.cardType === "widget" ? (
+                    <WidgetCardPreview
+                      card={card}
+                      summary={widgetSummary}
+                      focusState={focusState}
+                      usageSummary={usageSummary}
+                      scopeCards={openGroupId ? pageCards.filter((candidate) => candidate.parentGroupId === openGroupId) : topLevelCards}
+                      busy={widgetActionBusy}
+                      onOpen={() => void launch(card)}
+                      onToggleTodo={(itemId, completed) => void toggleWidgetTodo(card.id, itemId, completed)}
+                      onFocusAction={(action) => void controlWidgetFocus(card.id, action)}
+                    />
+                  ) : <p className={card.cardType === "note" ? "note-card-preview" : undefined}>{card.cardType === "group" ? `${children.length} 個項目` : card.cardType === "note" ? card.noteText.trim() || zhTW.notes.empty : card.subtitle}</p>}
                 </div>
                 {card.cardType === "target" && <span className="open-indicator" aria-hidden="true">↗</span>}
                 {targetProblem && !editing && <button type="button" className="card-repair-button" onClick={(event) => { event.stopPropagation(); setRepairError(null); setRepairCardId(card.id); }}>! 重新定位</button>}
                 {editing && (
                   <div className="edit-controls" onClick={(event) => event.stopPropagation()}>
                     {card.cardType === "group" && <button onClick={() => setGroupContentsId(card.id)} title="管理群組內容">▦</button>}
-                    <button onClick={() => { setCardEditError(null); setCardBeingEdited(card); }} title="編輯卡片">⋯</button>
+                    <button onClick={() => {
+                      if (card.cardType === "note") editNote(card, false);
+                      else {
+                        setCardEditError(null);
+                        setCardBeingEdited(card);
+                      }
+                    }} title={card.cardType === "note" ? "編輯筆記" : "編輯卡片"}>⋯</button>
                     <button onClick={() => void commitMutation("已調整卡片大小", () => updateCard({ cardId: card.id, size: (card.size === "wide" ? "square" : "wide") as ItemSize }))} title="切換大小">◫</button>
                     {card.cardType === "group" && <button onClick={() => void commitMutation("已解散群組", () => ungroup(card.id))} title="解散群組">⇱</button>}
                     <button onClick={() => void commitMutation("已移除卡片", () => deleteCards([card.id]))} title="移除">×</button>
@@ -1068,12 +1238,27 @@ function App() {
       {nativeDragActive && <div className="native-drop-overlay" role="status"><div className="native-drop-target"><span aria-hidden="true">＋</span><strong>放開即可加入{openGroup ? "這個地方" : "目前頁面"}</strong><small>可同時加入多個檔案、捷徑或資料夾</small></div></div>}
       {dropResult && <div className="floating-ingest-result"><IngestResultPanel result={dropResult} busy={dropBusy} onDismiss={() => { dropApprovalsRef.current.clear(); dropResultRef.current = null; setDropResult(null); }} onRetryDuplicates={() => void retryDroppedProblems(dropResult.issues.filter((issue) => issue.code === "duplicate"), "duplicate")} onConfirmRisky={() => void retryDroppedProblems(dropResult.issues.filter((issue) => issue.code === "risky"), "risky")} /></div>}
 
-      {settingsOpen && <div className="dialog-backdrop" onMouseDown={() => setSettingsOpen(false)}><section ref={settingsDialogRef} tabIndex={-1} className="dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">SETTINGS</p><h2 id="settings-title">設定</h2></div><button className="icon-button" onClick={() => setSettingsOpen(false)} aria-label="關閉設定">×</button></div><div className="settings-list"><button className="settings-row" onClick={() => { setSettingsOpen(false); setGuideOpen(true); }}><span className="settings-row-icon" aria-hidden="true">?</span><span><strong>{zhTW.guide.settingsTitle}</strong><small>{zhTW.guide.settingsDescription}</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><button className="settings-row" onClick={() => { setSettingsOpen(false); setBackupOpen(true); }}><span className="settings-row-icon" aria-hidden="true">⇅</span><span><strong>備份與還原</strong><small>匯出或取代式還原本機資料</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><div className="settings-row cache-row"><span className="settings-row-icon" aria-hidden="true">▧</span><span><strong>縮圖儲存區</strong><small>{cacheInfo ? `${cacheInfo.entries} 個預覽 · ${formatStorageSize(cacheInfo.bytes)}` : "正在讀取使用量…"}</small></span><button className="cache-clear-button" disabled={cacheBusy || !cacheInfo || cacheInfo.entries === 0} onClick={() => void clearStoredPreviews()}>{cacheBusy ? "清除中" : "清除"}</button></div></div><footer className="settings-footer"><span>{zhTW.brand.name}</span><span>{zhTW.release.versionStatus("1.0.1")}</span></footer></section></div>}
+      {settingsOpen && <div className="dialog-backdrop" onMouseDown={() => setSettingsOpen(false)}><section ref={settingsDialogRef} tabIndex={-1} className="dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">SETTINGS</p><h2 id="settings-title">設定</h2></div><button className="icon-button" onClick={() => setSettingsOpen(false)} aria-label="關閉設定">×</button></div><div className="settings-list"><button className="settings-row" onClick={() => { setSettingsOpen(false); setGuideOpen(true); }}><span className="settings-row-icon" aria-hidden="true">?</span><span><strong>{zhTW.guide.settingsTitle}</strong><small>{zhTW.guide.settingsDescription}</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><button className="settings-row" onClick={() => { setSettingsOpen(false); setBackupOpen(true); }}><span className="settings-row-icon" aria-hidden="true">⇅</span><span><strong>備份與還原</strong><small>匯出或取代式還原本機資料</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><div className="settings-row cache-row"><span className="settings-row-icon" aria-hidden="true">▧</span><span><strong>縮圖儲存區</strong><small>{cacheInfo ? `${cacheInfo.entries} 個預覽 · ${formatStorageSize(cacheInfo.bytes)}` : "正在讀取使用量…"}</small></span><button className="cache-clear-button" disabled={cacheBusy || !cacheInfo || cacheInfo.entries === 0} onClick={() => void clearStoredPreviews()}>{cacheBusy ? "清除中" : "清除"}</button></div></div><footer className="settings-footer"><span>{zhTW.brand.name}</span><span>{zhTW.release.versionStatus("1.0.2")}</span></footer></section></div>}
 
       {guideOpen && <GuideDialog onClose={() => { setGuideOpen(false); setSettingsOpen(true); }} />}
 
-      {dialogOpen && <AddPanel pageId={activePage.id} performIngest={runSerializedIngest} onAdded={() => void refreshDashboard()} onClose={() => setDialogOpen(false)} />}
-      {addGroupId && <AddPanel pageId={activePage.id} parentGroupId={addGroupId} performIngest={runSerializedIngest} onAdded={() => void refreshDashboard()} onClose={() => setAddGroupId(null)} />}
+      {dialogOpen && <AddPanel pageId={activePage.id} performIngest={runSerializedIngest} onAdded={() => void refreshDashboard()} onCreateWidget={async (widgetKind) => {
+        const result = await createWidget(activePage.id, null, widgetKind);
+        adoptDashboard(result.dashboard);
+        setUndoMessage("已新增小工具");
+      }} onClose={() => setDialogOpen(false)} />}
+      {addGroupId && <AddPanel pageId={activePage.id} parentGroupId={addGroupId} performIngest={runSerializedIngest} onAdded={() => void refreshDashboard()} onCreateWidget={async (widgetKind) => {
+        const result = await createWidget(activePage.id, addGroupId, widgetKind);
+        adoptDashboard(result.dashboard);
+        setUndoMessage("已新增小工具");
+      }} onClose={() => setAddGroupId(null)} />}
+      {openTodoWidgetId && state.cards.find((card) => card.id === openTodoWidgetId && card.cardType === "widget") && <TodoDialog widget={state.cards.find((card) => card.id === openTodoWidgetId && card.cardType === "widget")!} onClose={() => setOpenTodoWidgetId(null)} onDashboardChanged={adoptDashboard} onChanged={() => {
+        const cardId = openTodoWidgetId;
+        if (cardId) void getWidgetSummary(cardId).then((summary) => setWidgetSummaries((current) => ({ ...current, [cardId]: summary }))).catch(() => undefined);
+      }} />}
+      {openFocusWidgetId && <FocusDialogSafe onClose={() => setOpenFocusWidgetId(null)} onChanged={(focusState) => setWidgetSummaries((current) => ({ ...current, [openFocusWidgetId]: { cardId: openFocusWidgetId, widgetKind: "focus", title: "Focus Timer", primaryValue: focusState.remainingSeconds == null ? `${focusState.settings.focusMinutes}:00` : `${Math.floor(focusState.remainingSeconds / 60).toString().padStart(2, "0")}:${(focusState.remainingSeconds % 60).toString().padStart(2, "0")}`, secondaryValue: focusState.status === "running" ? "進行中" : focusState.status === "paused" ? "已暫停" : "準備開始", items: [] } }))} />}
+      {openUsageWidgetId && <UsageDialog onClose={() => setOpenUsageWidgetId(null)} onChanged={(summary, tracking) => setWidgetSummaries((current) => ({ ...current, [openUsageWidgetId]: { cardId: openUsageWidgetId, widgetKind: "usage", title: "使用時間", primaryValue: `${Math.floor(summary.totalSeconds / 3600)} 小時`, secondaryValue: tracking.enabled ? (summary.apps.slice(0, 3).map((app) => app.displayName).join(" · ") || "等待使用紀錄") : "追蹤預設關閉", items: [] } }))} />}
+      {currentNoteBeingViewed && <NoteViewDialog note={currentNoteBeingViewed} onClose={() => setNoteBeingViewed(null)} onEdit={() => editNote(currentNoteBeingViewed, true)} />}
       {currentNoteBeingEdited && <NoteEditDialog key={currentNoteBeingEdited.id} note={currentNoteBeingEdited} busy={mutationBusy} onSaveText={(value) => saveNoteText(currentNoteBeingEdited.id, value)} onSaveAppearance={async (title, size) => {
         setMutationBusy(true);
         try {
@@ -1085,7 +1270,7 @@ function App() {
         } finally {
           setMutationBusy(false);
         }
-      }} onClose={() => setNoteBeingEdited(null)} />}
+      }} onClose={() => closeNoteEditor(currentNoteBeingEdited.id)} />}
       {cardBeingEdited && <CardEditDialog key={cardBeingEdited.id} item={cardBeingEdited} busy={mutationBusy} error={cardEditError} onClose={() => { if (!mutationBusy) setCardBeingEdited(null); }} onSave={(values) => void persistCardAppearance(cardBeingEdited, values, false)} onReset={cardBeingEdited.cardType === "target" ? () => void persistCardAppearance(cardBeingEdited, { title: cardBeingEdited.title, subtitle: cardBeingEdited.subtitle, tone: cardBeingEdited.tone, size: cardBeingEdited.size }, true) : undefined} />}
       {pageManagerOpen && <PageManagerDialog pages={state.pages} busy={mutationBusy} onClose={() => setPageManagerOpen(false)} onCreate={() => void commitMutation("已新增頁面", createPage)} onUpdate={(pageId, name, symbol) => void commitMutation("已更新頁面", () => updatePage(pageId, name, symbol))} onMove={(pageId, direction) => void commitMutation("已調整頁面順序", () => movePage(pageId, direction))} onDelete={(page: Page) => {
         const count = state.cards.filter((card) => card.pageId === page.id).length;

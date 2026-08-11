@@ -35,6 +35,10 @@ pub struct DashboardCard {
     pub resume_note: String,
     pub launch_enabled: bool,
     pub last_opened_at: Option<String>,
+    #[serde(default)]
+    pub widget_kind: Option<String>,
+    #[serde(default)]
+    pub widget_resource_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -681,7 +685,7 @@ impl WorkspaceStore {
         Ok(restored)
     }
 
-    fn mutate_with_undo<F>(&self, operation: F) -> Result<DashboardState, String>
+    pub(crate) fn mutate_with_undo<F>(&self, operation: F) -> Result<DashboardState, String>
     where
         F: FnOnce(&Transaction<'_>) -> Result<(), String>,
     {
@@ -709,7 +713,7 @@ impl WorkspaceStore {
         Ok(after)
     }
 
-    fn mutate_content<F>(&self, operation: F) -> Result<DashboardState, String>
+    pub(crate) fn mutate_content<F>(&self, operation: F) -> Result<DashboardState, String>
     where
         F: FnOnce(&Transaction<'_>) -> Result<(), String>,
     {
@@ -810,7 +814,8 @@ pub(crate) fn load_dashboard(connection: &Connection) -> Result<DashboardState, 
         .prepare(
             "SELECT id, page_id, parent_group_id, card_type, target_id,
                     title, subtitle, kind, symbol, tone, size, position,
-                    note_text, resume_note, launch_enabled, last_opened_at
+                    note_text, resume_note, launch_enabled, last_opened_at,
+                    widget_kind, widget_resource_id
              FROM cards
              ORDER BY page_id, CASE WHEN parent_group_id IS NULL THEN 0 ELSE 1 END,
                       parent_group_id, position, id",
@@ -835,6 +840,8 @@ pub(crate) fn load_dashboard(connection: &Connection) -> Result<DashboardState, 
                 resume_note: row.get(13)?,
                 launch_enabled: row.get(14)?,
                 last_opened_at: row.get(15)?,
+                widget_kind: row.get(16)?,
+                widget_resource_id: row.get(17)?,
             })
         })
         .map_err(|error| format!("無法讀取卡片：{error}"))?
@@ -980,9 +987,10 @@ pub(crate) fn write_dashboard(
                     "INSERT INTO cards(
                          id, page_id, parent_group_id, card_type, target_id,
                          title, subtitle, kind, symbol, tone, size, position,
-                         note_text, resume_note, launch_enabled, last_opened_at
+                          note_text, resume_note, launch_enabled, last_opened_at,
+                          widget_kind, widget_resource_id
                      ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                              ?13, ?14, ?15, ?16)",
+                               ?13, ?14, ?15, ?16, ?17, ?18)",
                     params![
                         card.id,
                         card.page_id,
@@ -1000,6 +1008,8 @@ pub(crate) fn write_dashboard(
                         card.resume_note,
                         card.launch_enabled,
                         card.last_opened_at,
+                        card.widget_kind,
+                        card.widget_resource_id,
                     ],
                 )
                 .map_err(|error| format!("無法復原卡片 {}：{error}", card.title))?;
@@ -1008,7 +1018,7 @@ pub(crate) fn write_dashboard(
     Ok(())
 }
 
-fn unique_id(prefix: &str) -> String {
+pub(crate) fn unique_id(prefix: &str) -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
