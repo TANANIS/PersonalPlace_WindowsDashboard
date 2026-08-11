@@ -6,9 +6,9 @@ Personal Place 是 Windows 上、本機優先的個人數位首頁。它讓你�
 
 目前版本：**1.3.0**
 
-- [安裝版（Windows 10／11 x64）](releases/Personal-Place-1.3.0/Personal-Place-1.3.0-setup.exe)
-- [免安裝版（Windows 10／11 x64）](releases/Personal-Place-1.3.0/Personal-Place-1.3.0-portable.exe)
-- [SHA-256 驗證碼](releases/Personal-Place-1.3.0/SHA256SUMS.txt)
+- [安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.3.0/releases/Personal-Place-1.3.0/Personal-Place-1.3.0-setup.exe)
+- [免安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.3.0/releases/Personal-Place-1.3.0/Personal-Place-1.3.0-portable.exe)
+- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.3.0/releases/Personal-Place-1.3.0/SHA256SUMS.txt)
 
 安裝版適合一般使用；免安裝版可直接執行。Personal Place 不需要帳號，資料只留在你的電腦。
 
