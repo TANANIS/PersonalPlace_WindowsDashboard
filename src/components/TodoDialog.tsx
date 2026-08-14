@@ -5,6 +5,7 @@ import {
   createTodoList,
   deleteTodoItems,
   getTodoOverview,
+  isTauriRuntime,
   moveTodoItems,
   platformErrorMessage,
   setTodoCompleted,
@@ -18,6 +19,7 @@ import {
   type TodoRecurrence,
 } from "../lib/platform";
 import { useModalFocus } from "../lib/accessibility";
+import { usePointerReorder } from "../lib/pointerReorder";
 
 type TodoFilter = "all" | "today" | "upcoming" | "overdue" | "completed";
 
@@ -26,6 +28,8 @@ interface TodoDialogProps {
   onClose: () => void;
   onDashboardChanged: (dashboard: DashboardState) => void;
   onChanged: () => void;
+  embedded?: boolean;
+  backLabel?: string;
 }
 
 const emptyInput: TodoItemInput = {
@@ -100,17 +104,18 @@ function itemToInput(item: TodoItem): TodoItemInput {
   };
 }
 
-export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged }: TodoDialogProps) {
+export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged, embedded = false, backLabel = "返回頁面" }: TodoDialogProps) {
   const [overview, setOverview] = useState<TodoOverview | null>(null);
   const [listId, setListId] = useState(widget.widgetResourceId ?? "");
   const [filter, setFilter] = useState<TodoFilter>("all");
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<TodoItemInput>(emptyInput);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [newListTitle, setNewListTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dialogRef = useModalFocus<HTMLElement>(true, onClose);
+  const dialogRef = useModalFocus<HTMLElement>(!embedded, onClose);
 
   useEffect(() => {
     let disposed = false;
@@ -140,10 +145,18 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged }: T
       if (filter === "upcoming") return item.dueAt != null && item.dueAt >= tomorrow;
       if (filter === "overdue") return item.dueAt != null && item.dueAt < now;
       return true;
-    });
+    }).sort((left, right) => left.position - right.position);
   }, [filter, listId, overview, query]);
 
   const topLevel = listItems.filter((item) => item.parentId == null);
+  const todoReorder = usePointerReorder("data-todo-reorder-id", (sourceId, targetId) => {
+    const source = listItems.find((item) => item.id === sourceId);
+    const target = listItems.find((item) => item.id === targetId);
+    if (!source || !target || source.parentId !== target.parentId) return;
+    const siblings = listItems.filter((item) => item.parentId === target.parentId);
+    const targetIndex = siblings.findIndex((item) => item.id === targetId);
+    if (targetIndex >= 0) void run(() => moveTodoItems([sourceId], target.listId, target.parentId, targetIndex));
+  }, busy);
 
   async function run(operation: () => Promise<TodoOverview>) {
     if (busy) return;
@@ -165,13 +178,15 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged }: T
     await run(() => editingId ? updateTodoItem(editingId, input) : createTodoItem(listId, input));
     setEditingId(null);
     setDraft(emptyInput);
+    setEditorOpen(false);
   }
 
   async function chooseList(nextListId: string) {
     setListId(nextListId);
     setEditingId(null);
     setDraft(emptyInput);
-    if (nextListId !== widget.widgetResourceId) {
+    setEditorOpen(false);
+    if (nextListId !== widget.widgetResourceId && isTauriRuntime()) {
       try {
         onDashboardChanged(await updateWidgetPreferences(widget.id, nextListId));
       } catch (reason) {
@@ -185,7 +200,17 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged }: T
     const index = siblings.findIndex((candidate) => candidate.id === item.id);
     const overdue = item.status === "active" && item.dueAt != null && item.dueAt < Date.now() / 1000;
     return (
-      <div className={`todo-item-row${depth ? " is-subtask" : ""}${overdue ? " is-overdue" : ""}`} key={item.id}>
+      <div
+        className={`todo-item-row${depth ? " is-subtask" : ""}${overdue ? " is-overdue" : ""}${todoReorder.draggedId === item.id ? " is-dragging" : ""}${todoReorder.dragOverId === item.id && todoReorder.draggedId !== item.id ? " is-drag-over" : ""}`}
+        key={item.id}
+        data-todo-reorder-id={item.id}
+      >
+        <span
+          className="todo-drag-handle"
+          aria-label={`拖曳 ${item.title}`}
+          title="拖曳調整順序"
+          {...todoReorder.bind(item.id)}
+        >⠿</span>
         <input
           type="checkbox"
           checked={item.status === "completed"}
@@ -193,7 +218,7 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged }: T
           aria-label={`完成 ${item.title}`}
           onChange={(event) => void run(() => setTodoCompleted(item.id, event.target.checked))}
         />
-        <button type="button" className="todo-item-copy" onClick={() => { setEditingId(item.id); setDraft(itemToInput(item)); }}>
+        <button type="button" className="todo-item-copy" onClick={() => { setEditingId(item.id); setDraft(itemToInput(item)); setEditorOpen(true); }}>
           <strong>{item.title}</strong>
           <span>
             {item.dueAt != null && <small>{overdue ? "已逾期 · " : ""}{formatDue(item.dueAt)}</small>}
@@ -210,15 +235,14 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged }: T
     );
   }
 
-  return (
-    <div className="dialog-backdrop" onMouseDown={onClose}>
-      <section ref={dialogRef} tabIndex={-1} className="dialog tool-dialog todo-dialog" role="dialog" aria-modal="true" aria-labelledby="todo-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
-        <header className="dialog-header">
-          <div><p className="eyebrow">TODO</p><h2 id="todo-dialog-title">待辦事項</h2></div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="關閉待辦事項">×</button>
+  const content = (
+      <section ref={dialogRef} tabIndex={-1} className={embedded ? "tool-workspace-surface todo-workspace" : "dialog tool-dialog todo-dialog"} role={embedded ? "region" : "dialog"} aria-modal={embedded ? undefined : true} aria-labelledby="todo-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header className={embedded ? "workspace-view-header" : "dialog-header"}>
+          <div>{embedded && <button type="button" className="back-button" onClick={onClose}>← {backLabel}</button>}<p className="eyebrow">TODO</p><h2 id="todo-dialog-title">待辦事項</h2><small className="dialog-subtitle">把清單與下一步放在一個安靜的工作區</small></div>
+          {embedded ? <button type="button" className="button primary" onClick={() => { setEditingId(null); setDraft(emptyInput); setEditorOpen(true); }}>＋ 新增待辦</button> : <button type="button" className="icon-button" onClick={onClose} aria-label="關閉待辦事項">×</button>}
         </header>
 
-        <div className="todo-layout">
+        <div className={`todo-layout${editorOpen ? " has-inspector" : ""}`}>
           <aside className="todo-lists" aria-label="待辦清單">
             <strong>清單</strong>
             {overview?.lists.filter((list) => !list.archivedAt).map((list) => (
@@ -243,6 +267,7 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged }: T
                 ))}
               </div>
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋待辦" aria-label="搜尋待辦" />
+              {!embedded && <button type="button" className="button primary todo-add-button" onClick={() => { setEditingId(null); setDraft(emptyInput); setEditorOpen(true); }}>＋ 新增</button>}
             </div>
 
             {activeList && (
@@ -260,13 +285,17 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged }: T
                 </div>
               ))}
               {!overview && <p className="muted-copy">正在讀取待辦事項…</p>}
-              {overview && topLevel.length === 0 && <div className="todo-empty"><span aria-hidden="true">✓</span><strong>這裡目前沒有待辦</strong><small>在下方建立一項，或切換其他篩選。</small></div>}
+              {overview && topLevel.length === 0 && <div className="todo-empty"><span aria-hidden="true">✓</span><strong>這裡目前沒有待辦</strong><small>在右側建立一項，或切換其他篩選。</small></div>}
             </section>
 
+            {error && <p className="form-error" role="alert">{error}</p>}
+          </main>
+
+          {editorOpen && <aside className="todo-inspector" aria-label={editingId ? "編輯待辦" : "新增待辦"}>
             <form className="todo-editor" onSubmit={(event) => { event.preventDefault(); void saveItem(); }}>
               <div className="todo-editor-heading">
                 <strong>{editingId ? "編輯待辦" : "新增待辦"}</strong>
-                {editingId && <button type="button" onClick={() => { setEditingId(null); setDraft(emptyInput); }}>取消編輯</button>}
+                <button type="button" onClick={() => { setEditingId(null); setDraft(emptyInput); setEditorOpen(false); }}>關閉</button>
               </div>
               <input value={draft.title} maxLength={300} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="要做什麼？" aria-label="待辦名稱" />
               <textarea value={draft.notes} maxLength={10000} rows={2} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} placeholder="備註（選填）" aria-label="待辦備註" />
@@ -280,10 +309,9 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged }: T
               </div>
               <button type="submit" className="button primary" disabled={busy || !draft.title.trim() || !listId}>{busy ? "保存中…" : editingId ? "保存修改" : "新增待辦"}</button>
             </form>
-            {error && <p className="form-error" role="alert">{error}</p>}
-          </main>
+          </aside>}
         </div>
       </section>
-    </div>
   );
+  return embedded ? content : <div className="dialog-backdrop" onMouseDown={onClose}>{content}</div>;
 }

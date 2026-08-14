@@ -5,6 +5,8 @@ import type { FocusState } from "./lib/platform";
 interface FocusDialogSafeProps {
   onClose: () => void;
   onChanged: (state: FocusState) => void;
+  embedded?: boolean;
+  backLabel?: string;
 }
 
 /**
@@ -15,7 +17,7 @@ interface FocusDialogSafeProps {
  * restart after every summary update, creating an immediate invoke/re-render
  * loop. The latest handler is still used through the ref.
  */
-export function FocusDialogSafe({ onClose, onChanged }: FocusDialogSafeProps) {
+export function FocusDialogSafe({ onClose, onChanged, embedded = false, backLabel }: FocusDialogSafeProps) {
   const onChangedRef = useRef(onChanged);
 
   useEffect(() => {
@@ -26,5 +28,5 @@ export function FocusDialogSafe({ onClose, onChanged }: FocusDialogSafeProps) {
     onChangedRef.current(state);
   }, []);
 
-  return <FocusDialog onClose={onClose} onChanged={handleChanged} />;
+  return <FocusDialog onClose={onClose} onChanged={handleChanged} embedded={embedded} backLabel={backLabel} />;
 }

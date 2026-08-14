@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changeSelection, keyboardReorderTarget } from "./editing";
+import { changeSelection, keyboardReorderTarget, moveDashboardCardsInMemory } from "./editing";
 
 const ids = ["one", "two", "three", "four"];
 
@@ -41,5 +41,17 @@ describe("changeSelection", () => {
     expect(keyboardReorderTarget(0, 4, "ArrowLeft")).toBeNull();
     expect(keyboardReorderTarget(3, 4, "ArrowRight")).toBeNull();
     expect(keyboardReorderTarget(1, 4, "Enter")).toBeNull();
+  });
+
+  it("在隔離 UI 中依拖放目標重新排列卡片", () => {
+    const state = {
+      pages: [{ id: "home" }],
+      cards: ids.map((id, position) => ({ id, pageId: "home", parentGroupId: null, cardType: "target", position })),
+    };
+    const moved = moveDashboardCardsInMemory(state, {
+      cardIds: ["four"], destinationPageId: "home", destinationGroupId: null, targetIndex: 1,
+    });
+    expect([...moved.cards].sort((a, b) => a.position - b.position).map((card) => card.id))
+      .toEqual(["one", "four", "two", "three"]);
   });
 });

@@ -11,9 +11,7 @@ import {
 import { CardEditDialog, type CardEditValues } from "./components/CardEditDialog";
 import { PageManagerDialog } from "./components/PageManagerDialog";
 import { GroupDetailView } from "./components/GroupDetailView";
-import { NoteEditDialog } from "./components/NoteEditDialog";
-import { NoteViewDialog } from "./components/NoteViewDialog";
-import { GlobalSearchDialog } from "./components/GlobalSearchDialog";
+import { NoteWorkspace } from "./components/NoteWorkspace";
 import { TargetRepairDialog } from "./components/TargetRepairDialog";
 import { BackupDialog } from "./components/BackupDialog";
 import { RecoveryScreen } from "./components/RecoveryScreen";
@@ -23,9 +21,15 @@ import { TodoDialog } from "./components/TodoDialog";
 import { FocusDialogSafe } from "./FocusDialogSafe";
 import { UsageDialog } from "./components/UsageDialog";
 import { WidgetCardPreview } from "./components/WidgetCardPreview";
+import { ContextActionBar } from "./components/ContextActionBar";
+import { PageIcon } from "./components/PageIcon";
 import { defaultState } from "./data/defaults";
 import { performanceDemoState, placesDemoState } from "./data/demo";
-import { changeSelection, keyboardReorderTarget } from "./lib/editing";
+import { changeSelection, keyboardReorderTarget, moveDashboardCardsInMemory } from "./lib/editing";
+import { applyColorTheme, COLOR_THEMES, loadColorTheme, saveColorTheme, type ColorTheme } from "./lib/theme";
+import { usePointerReorder } from "./lib/pointerReorder";
+import { classifyShortcutPreview, isCompactCardPreview, isShortcutCard, type PreviewPresentation } from "./lib/cardPreview";
+import { dashboardView, type AppView, type OverlayState, type ViewOrigin } from "./lib/viewState";
 import { loadLegacyState } from "./lib/storage";
 import { useModalFocus } from "./lib/accessibility";
 import { zhTW } from "./i18n/zh-TW";
@@ -55,6 +59,7 @@ import {
   listenForNativeFileDrops,
   moveCards,
   movePage,
+  reorderPage,
   platformErrorMessage,
   platformErrorCode,
   setLaunchEnabled,
@@ -88,6 +93,7 @@ import type {
   WidgetSummary,
   FocusState,
   UsageSummary,
+  MoveCardsRequest,
 } from "./lib/platform";
 import type {
   DashboardCard,
@@ -130,6 +136,15 @@ function kindLabel(card: DashboardCard): string {
   return "APP";
 }
 
+function searchResultTypeLabel(result: DashboardSearchResult): string {
+  if (result.subtitle) return result.subtitle;
+  if (result.resultType === "group") return "Place";
+  if (result.resultType === "note") return "筆記";
+  if (result.resultType === "widget") return "工具";
+  if (result.resultType === "page") return "頁面";
+  return "入口";
+}
+
 function formatStorageSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -138,7 +153,8 @@ function formatStorageSize(bytes: number): string {
 
 function App() {
   const [legacyState] = useState<WorkspaceState | null>(() => loadLegacyState());
-  const demoMode = import.meta.env.DEV
+  const [shortcutPreviewPresentation, setShortcutPreviewPresentation] = useState<Record<string, PreviewPresentation>>({});
+  const demoMode = !isTauriRuntime()
     ? new URLSearchParams(window.location.search).get("demo")
     : null;
   const browserInitial = demoMode === "places"
@@ -149,20 +165,19 @@ function App() {
   const [state, setState] = useState<DashboardState>(browserInitial);
   const [activePageId, setActivePageId] = useState(browserInitial.pages[0]?.id ?? "home");
   const [query, setQuery] = useState("");
+  const [searchScope, setSearchScope] = useState<"page" | "all">("page");
+  const [searchResults, setSearchResults] = useState<DashboardSearchResult[]>([]);
+  const [searchBusy, setSearchBusy] = useState(false);
+  const [searchExpanded, setSearchExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
-  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [colorTheme, setColorTheme] = useState<ColorTheme>(() => loadColorTheme());
   const [mutationBusy, setMutationBusy] = useState(false);
   const [undoMessage, setUndoMessage] = useState<string | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [guideOpen, setGuideOpen] = useState(false);
-  const [pageManagerOpen, setPageManagerOpen] = useState(false);
-  const [groupContentsId, setGroupContentsId] = useState<string | null>(null);
-  const [openGroupId, setOpenGroupId] = useState<string | null>(null);
-  const [addGroupId, setAddGroupId] = useState<string | null>(null);
+  const [view, setView] = useState<AppView>(() => dashboardView(browserInitial.pages[0]?.id ?? "home"));
+  const [overlay, setOverlay] = useState<OverlayState>(null);
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
@@ -175,23 +190,13 @@ function App() {
   const [previewGeneration, setPreviewGeneration] = useState(0);
   const [cacheInfo, setCacheInfo] = useState<PreviewCacheInfo | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
-  const [cardBeingEdited, setCardBeingEdited] = useState<DashboardCard | null>(null);
   const [widgetSummaries, setWidgetSummaries] = useState<Record<string, WidgetSummary>>({});
   const [focusState, setFocusState] = useState<FocusState | null>(null);
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
   const [widgetActionBusy, setWidgetActionBusy] = useState(false);
-  const [openTodoWidgetId, setOpenTodoWidgetId] = useState<string | null>(null);
-  const [openFocusWidgetId, setOpenFocusWidgetId] = useState<string | null>(null);
-  const [openUsageWidgetId, setOpenUsageWidgetId] = useState<string | null>(null);
-  const [noteBeingViewed, setNoteBeingViewed] = useState<DashboardCard | null>(null);
-  const [noteBeingEdited, setNoteBeingEdited] = useState<DashboardCard | null>(null);
-  const [returnToNoteView, setReturnToNoteView] = useState(false);
   const [cardEditError, setCardEditError] = useState<string | null>(null);
   const [persistenceReady, setPersistenceReady] = useState(false);
-  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
-  const [repairCardId, setRepairCardId] = useState<string | null>(null);
   const [repairError, setRepairError] = useState<string | null>(null);
-  const [backupOpen, setBackupOpen] = useState(false);
   const [targetStatuses, setTargetStatuses] = useState<Record<string, TargetAvailability>>({});
   const [recoveryInfo, setRecoveryInfo] = useState<RecoveryInfo | null>(() =>
     import.meta.env.DEV && new URLSearchParams(window.location.search).get("demo") === "recovery"
@@ -203,13 +208,10 @@ function App() {
   );
   const stateRef = useRef(state);
   const activePageIdRef = useRef(activePageId);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const mainContentRef = useRef<HTMLElement>(null);
+  const openGroupId = view.kind === "place" ? view.groupId : null;
   const openGroupIdRef = useRef(openGroupId);
-  const groupNavigationRef = useRef<{
-    pageId: string;
-    query: string;
-    scrollY: number;
-    editing: boolean;
-  } | null>(null);
   const readyRef = useRef(false);
   const dropApprovalsRef = useRef(
     new Map<string, { allowDuplicate: boolean; allowRisky: boolean }>(),
@@ -218,8 +220,7 @@ function App() {
   const dropResultRef = useRef<IngestResult | null>(null);
   const requestedPreviewsRef = useRef(new Set<string>());
   const previewMountedRef = useRef(true);
-  const settingsDialogRef = useModalFocus<HTMLElement>(settingsOpen, () => setSettingsOpen(false));
-  const groupContentsDialogRef = useModalFocus<HTMLElement>(Boolean(groupContentsId), () => setGroupContentsId(null));
+  const settingsDialogRef = useModalFocus<HTMLElement>(overlay?.kind === "settings", () => setOverlay(null));
 
   useEffect(() => {
     previewMountedRef.current = true;
@@ -227,6 +228,11 @@ function App() {
       previewMountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    applyColorTheme(colorTheme);
+    saveColorTheme(colorTheme);
+  }, [colorTheme]);
 
   useEffect(() => {
     let disposed = false;
@@ -291,7 +297,9 @@ function App() {
     function handleGlobalShortcut(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        setGlobalSearchOpen(true);
+        setSearchScope("all");
+        setSearchExpanded(true);
+        window.setTimeout(() => searchInputRef.current?.focus(), 0);
       }
     }
     window.addEventListener("keydown", handleGlobalShortcut);
@@ -302,6 +310,63 @@ function App() {
     state.pages.find((page) => page.id === activePageId) ??
     state.pages[0] ??
     { id: "home", name: "我的地方", symbol: "⌂" };
+
+  function captureOrigin(): ViewOrigin {
+    const dashboardOrigin = view.kind === "place" ? view.origin : null;
+    const currentScrollY = mainContentRef.current?.scrollTop ?? 0;
+    return {
+      pageId: activePage.id,
+      query: dashboardOrigin?.query ?? query,
+      searchScope: dashboardOrigin?.searchScope ?? searchScope,
+      scrollY: dashboardOrigin?.scrollY ?? currentScrollY,
+      editing: dashboardOrigin?.editing ?? editing,
+      placeId: view.kind === "place" ? view.groupId : undefined,
+      placeScrollY: view.kind === "place" ? currentScrollY : undefined,
+    };
+  }
+
+  function scheduleMainScroll(top: number) {
+    window.setTimeout(() => {
+      if (mainContentRef.current) mainContentRef.current.scrollTop = top;
+    }, 0);
+  }
+
+  function navigateToAppView(nextView: AppView) {
+    setView(nextView);
+    scheduleMainScroll(0);
+  }
+
+  function showDashboard(pageId: string, resetSearch = true) {
+    setActivePageId(pageId);
+    setView(dashboardView(pageId));
+    setSelectedIds(new Set());
+    setSelectionAnchor(null);
+    if (resetSearch) {
+      setQuery("");
+      setSearchScope("page");
+      setSearchExpanded(false);
+    }
+    scheduleMainScroll(0);
+  }
+
+  function returnToOrigin() {
+    if (view.kind === "dashboard") return;
+    const origin = view.origin;
+    setActivePageId(origin.pageId);
+    setQuery(origin.query);
+    setSearchScope(origin.searchScope);
+    setEditing(origin.editing);
+    if (origin.placeId) {
+      const { placeId, placeScrollY, ...dashboardOrigin } = origin;
+      setView({ kind: "place", groupId: placeId, origin: dashboardOrigin });
+      scheduleMainScroll(placeScrollY ?? 0);
+    } else {
+      setView(dashboardView(origin.pageId));
+      scheduleMainScroll(origin.scrollY);
+    }
+    setSelectedIds(new Set());
+    setSelectionAnchor(null);
+  }
   const pageCards = useMemo(
     () => state.cards.filter((card) => card.pageId === activePage?.id),
     [activePage?.id, state.cards],
@@ -310,6 +375,20 @@ function App() {
     () => pageCards.filter((card) => card.parentGroupId === null).sort((a, b) => a.position - b.position),
     [pageCards],
   );
+  const cardReorder = usePointerReorder("data-card-reorder-id", (_sourceId, targetId, draggedIds) => {
+    const targetIndex = topLevelCards.findIndex((card) => card.id === targetId);
+    if (targetIndex < 0) return;
+    void commitMutation("已調整卡片順序", () => moveCardsForUi({
+      cardIds: draggedIds,
+      destinationPageId: activePage.id,
+      destinationGroupId: null,
+      targetIndex,
+    }));
+  }, !editing || mutationBusy, {
+    getDragIds: (sourceId) => selectedIds.has(sourceId)
+      ? topLevelCards.filter((card) => selectedIds.has(card.id)).map((card) => card.id)
+      : [sourceId],
+  });
   const visibleCards = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("zh-TW");
     if (!normalized) return topLevelCards;
@@ -369,26 +448,15 @@ function App() {
   }, [openGroupId, pageCards, previewGeneration, topLevelCards]);
 
   useEffect(() => {
-    if (!settingsOpen) return;
+    if (overlay?.kind !== "settings") return;
     void getPreviewCacheInfo().then(setCacheInfo).catch(() => setCacheInfo(null));
-  }, [settingsOpen]);
+  }, [overlay]);
 
   useEffect(() => {
     const visibleWidgets = (openGroupId
       ? pageCards.filter((card) => card.parentGroupId === openGroupId)
       : topLevelCards
     ).filter((card) => card.cardType === "widget");
-    if (!isTauriRuntime()) {
-      setWidgetSummaries(Object.fromEntries(visibleWidgets.map((card) => [card.id, {
-        cardId: card.id,
-        widgetKind: card.widgetKind ?? "todo",
-        title: card.title,
-        primaryValue: card.widgetKind === "focus" ? "25:00" : card.widgetKind === "usage" ? "尚未啟用" : "開始規劃今天",
-        secondaryValue: card.widgetKind === "usage" ? "使用追蹤預設關閉" : "點擊查看完整內容",
-        items: [],
-      }])));
-      return;
-    }
     let cancelled = false;
     void Promise.all(visibleWidgets.map(async (card) => {
       try { return [card.id, await getWidgetSummary(card.id)] as const; }
@@ -400,7 +468,6 @@ function App() {
   }, [openGroupId, pageCards, topLevelCards]);
 
   useEffect(() => {
-    if (!isTauriRuntime()) return;
     const hasFocus = (openGroupId ? pageCards.filter((card) => card.parentGroupId === openGroupId) : topLevelCards).some((card) => card.cardType === "widget" && card.widgetKind === "focus");
     const hasUsage = (openGroupId ? pageCards.filter((card) => card.parentGroupId === openGroupId) : topLevelCards).some((card) => card.cardType === "widget" && card.widgetKind === "usage");
     let disposed = false;
@@ -454,6 +521,25 @@ function App() {
     } finally {
       setMutationBusy(false);
     }
+  }
+
+  async function moveCardsForUi(request: MoveCardsRequest): Promise<DashboardState> {
+    if (!isTauriRuntime()) {
+      return moveDashboardCardsInMemory(stateRef.current, request) as DashboardState;
+    }
+    return moveCards(request);
+  }
+
+  async function reorderPageForUi(pageId: string, targetIndex: number): Promise<DashboardState> {
+    if (!isTauriRuntime()) {
+      const pages = [...stateRef.current.pages];
+      const sourceIndex = pages.findIndex((page) => page.id === pageId);
+      if (sourceIndex < 0) return stateRef.current;
+      const [page] = pages.splice(sourceIndex, 1);
+      pages.splice(Math.max(0, Math.min(targetIndex, pages.length)), 0, page);
+      return { ...stateRef.current, pages };
+    }
+    return reorderPage(pageId, targetIndex);
   }
 
   async function runSerializedIngest(request: IngestRequest): Promise<IngestResult> {
@@ -605,23 +691,15 @@ function App() {
   async function launch(card: DashboardCard) {
     if (editing) return;
     if (card.cardType === "group") {
-      groupNavigationRef.current = {
-        pageId: activePage.id,
-        query,
-        scrollY: window.scrollY,
-        editing,
-      };
-      setOpenGroupId(card.id);
+      navigateToAppView({ kind: "place", groupId: card.id, origin: captureOrigin() });
       return;
     }
     if (card.cardType === "note") {
-      setNoteBeingViewed(card);
+      navigateToAppView({ kind: "note", cardId: card.id, origin: captureOrigin() });
       return;
     }
     if (card.cardType === "widget") {
-      if (card.widgetKind === "todo") setOpenTodoWidgetId(card.id);
-      else if (card.widgetKind === "focus") setOpenFocusWidgetId(card.id);
-      else setOpenUsageWidgetId(card.id);
+      if (card.widgetKind) navigateToAppView({ kind: "tool", widgetId: card.id, tool: card.widgetKind, origin: captureOrigin() });
       return;
     }
     try {
@@ -631,19 +709,13 @@ function App() {
       setNotice(message);
       if (card.kind === "local") {
         setRepairError(message);
-        setRepairCardId(card.id);
+        setOverlay({ kind: "repair", cardId: card.id });
       }
     }
   }
 
   function leaveGroup() {
-    const navigation = groupNavigationRef.current;
-    setOpenGroupId(null);
-    if (!navigation) return;
-    setActivePageId(navigation.pageId);
-    setQuery(navigation.query);
-    setEditing(navigation.editing);
-    window.setTimeout(() => window.scrollTo({ top: navigation.scrollY }), 0);
+    returnToOrigin();
   }
 
   async function createNoteInContainer(parentGroupId: string | null) {
@@ -654,8 +726,7 @@ function App() {
       adoptDashboard(result.dashboard);
       const note = result.dashboard.cards.find((card) => card.id === result.noteId);
       if (note) {
-        setReturnToNoteView(true);
-        setNoteBeingEdited(note);
+        navigateToAppView({ kind: "note", cardId: note.id, origin: captureOrigin(), startEditing: true });
       }
       setUndoMessage("已新增筆記");
     } catch (error) {
@@ -728,39 +799,49 @@ function App() {
     return results.sort((left, right) => left.score - right.score || left.title.localeCompare(right.title, "zh-TW"));
   }, []);
 
+  useEffect(() => {
+    if (searchScope !== "all" || !query.trim()) {
+      setSearchResults([]);
+      setSearchBusy(false);
+      return;
+    }
+    let disposed = false;
+    setSearchBusy(true);
+    const timer = window.setTimeout(() => {
+      void runGlobalSearch(query)
+        .then((results) => { if (!disposed) setSearchResults(results); })
+        .catch(() => { if (!disposed) setSearchResults([]); })
+        .finally(() => { if (!disposed) setSearchBusy(false); });
+    }, 120);
+    return () => { disposed = true; window.clearTimeout(timer); };
+  }, [query, runGlobalSearch, searchScope]);
+
   function chooseSearchResult(result: DashboardSearchResult) {
-    setGlobalSearchOpen(false);
+    const origin = captureOrigin();
+    setSearchExpanded(false);
     setActivePageId(result.pageId);
     if (result.resultType === "page") {
-      setOpenGroupId(null);
+      showDashboard(result.pageId, false);
       return;
     }
     const card = stateRef.current.cards.find((candidate) => candidate.id === result.id);
     if (!card) return;
     if (card.cardType === "group") {
-      groupNavigationRef.current = {
-        pageId: result.pageId,
-        query,
-        scrollY: window.scrollY,
-        editing,
-      };
-      setOpenGroupId(card.id);
+      navigateToAppView({ kind: "place", groupId: card.id, origin });
       return;
     }
     if (card.cardType === "note") {
-      setNoteBeingViewed(card);
+      navigateToAppView({ kind: "note", cardId: card.id, origin });
       return;
     }
     if (card.cardType === "widget") {
-      if (card.widgetKind === "todo") setOpenTodoWidgetId(card.id);
-      else if (card.widgetKind === "focus") setOpenFocusWidgetId(card.id);
-      else setOpenUsageWidgetId(card.id);
+      if (card.widgetKind) navigateToAppView({ kind: "tool", widgetId: card.id, tool: card.widgetKind, origin });
       return;
     }
     void launchCard(card.id).catch((error) => {
       setNotice(platformErrorMessage(error, "無法開啟搜尋結果。"));
       if (targetStatuses[card.id] === "missing" || targetStatuses[card.id] === "unavailable") {
-        setRepairCardId(card.id);
+        setOverlay({ kind: "repair", cardId: card.id });
       }
     });
   }
@@ -781,23 +862,6 @@ function App() {
     setEditing((current) => !current);
     setSelectedIds(new Set());
     setSelectionAnchor(null);
-    setDraggedId(null);
-  }
-
-  function editNote(note: DashboardCard, returnToViewer: boolean) {
-    setNoteBeingViewed(null);
-    setReturnToNoteView(returnToViewer);
-    setNoteBeingEdited(note);
-  }
-
-  function closeNoteEditor(noteId: string) {
-    setNoteBeingEdited(null);
-    if (!returnToNoteView) return;
-    const latest = stateRef.current.cards.find(
-      (card) => card.id === noteId && card.cardType === "note",
-    );
-    if (latest) setNoteBeingViewed(latest);
-    setReturnToNoteView(false);
   }
 
   async function createSelectedGroup() {
@@ -846,7 +910,7 @@ function App() {
             },
       );
       adoptDashboard(dashboard);
-      setCardBeingEdited(null);
+      setOverlay(null);
       setUndoMessage("已更新卡片");
     } catch (error) {
       setCardEditError(platformErrorMessage(error, "無法保存卡片設定。"));
@@ -871,11 +935,6 @@ function App() {
     }
   }
 
-  const groupContents = groupContentsId
-    ? pageCards
-        .filter((card) => card.parentGroupId === groupContentsId)
-        .sort((a, b) => a.position - b.position)
-    : [];
   const openGroup = openGroupId
     ? state.cards.find((card) => card.id === openGroupId && card.cardType === "group") ?? null
     : null;
@@ -884,14 +943,25 @@ function App() {
         .filter((card) => card.parentGroupId === openGroup.id)
         .sort((left, right) => left.position - right.position)
     : [];
-  const currentNoteBeingEdited = noteBeingEdited
-    ? state.cards.find((card) => card.id === noteBeingEdited.id && card.cardType === "note") ?? null
+  const currentNote = view.kind === "note"
+    ? state.cards.find((card) => card.id === view.cardId && card.cardType === "note") ?? null
     : null;
-  const currentNoteBeingViewed = noteBeingViewed
-    ? state.cards.find((card) => card.id === noteBeingViewed.id && card.cardType === "note") ?? null
+  const currentWidget = view.kind === "tool"
+    ? state.cards.find((card) => card.id === view.widgetId && card.cardType === "widget") ?? null
     : null;
-  const repairCard = repairCardId
-    ? state.cards.find((card) => card.id === repairCardId && card.cardType === "target") ?? null
+  const currentViewOrigin = view.kind === "dashboard" ? null : view.origin;
+  const originPlace = currentViewOrigin?.placeId
+    ? state.cards.find((card) => card.id === currentViewOrigin.placeId && card.cardType === "group") ?? null
+    : null;
+  const originPage = currentViewOrigin
+    ? state.pages.find((page) => page.id === currentViewOrigin.pageId) ?? null
+    : null;
+  const viewBackLabel = originPlace ? `返回 ${originPlace.title}` : `返回 ${originPage?.name ?? "頁面"}`;
+  const cardBeingEdited = overlay?.kind === "cardInspector"
+    ? state.cards.find((card) => card.id === overlay.cardId) ?? null
+    : null;
+  const repairCard = overlay?.kind === "repair"
+    ? state.cards.find((card) => card.id === overlay.cardId && card.cardType === "target") ?? null
     : null;
 
   useEffect(() => {
@@ -930,7 +1000,7 @@ function App() {
         return next;
       });
       setPreviewGeneration((current) => current + 1);
-      setRepairCardId(null);
+      setOverlay(null);
       setNotice("已重新定位並保留原本的卡片設定。");
     } catch (error) {
       if (
@@ -972,18 +1042,14 @@ function App() {
             <button
               className={`workspace-button ${page.id === activePage.id ? "is-active" : ""}`}
               key={page.id}
-              onClick={() => {
-                groupNavigationRef.current = null;
-                setOpenGroupId(null);
-                setActivePageId(page.id);
-              }}
+              onClick={() => showDashboard(page.id)}
               title={page.name}
             >
-              <span aria-hidden="true">{page.symbol}</span><small>{page.name}</small>
+              <PageIcon symbol={page.symbol} pageName={page.name} /><small>{page.name}</small>
             </button>
           ))}
           {editing && (
-            <button className="workspace-button add-page-button" onClick={() => setPageManagerOpen(true)} title="管理頁面">
+            <button className="workspace-button add-page-button" onClick={() => setOverlay({ kind: "pages" })} title="管理頁面">
               <span aria-hidden="true">＋</span><small>頁面</small>
             </button>
           )}
@@ -1000,14 +1066,41 @@ function App() {
             <span aria-hidden="true">{editing ? "✓" : "✎"}</span>
             <small>{editing ? zhTW.sidebar.finishEditing : zhTW.sidebar.edit}</small>
           </button>
-          <button className="workspace-button settings-button" onClick={() => setSettingsOpen(true)} title="設定">
+          <button className="workspace-button settings-button" onClick={() => setOverlay({ kind: "settings" })} title="設定">
             <span aria-hidden="true">⚙</span><small>{zhTW.sidebar.settings}</small>
           </button>
         </div>
       </aside>
 
-      <main className={`main-content${openGroup ? " is-place-detail" : ""}`}>
-        {openGroup ? (
+      <main ref={mainContentRef} className={`main-content${view.kind !== "dashboard" ? " is-workspace-view" : ""}${openGroup ? " is-place-detail" : ""}`}>
+        {view.kind === "note" && currentNote ? (
+          <NoteWorkspace
+            note={currentNote}
+            busy={mutationBusy}
+            startEditing={view.startEditing}
+            backLabel={viewBackLabel}
+            onBack={returnToOrigin}
+            onSaveText={(value) => saveNoteText(currentNote.id, value)}
+            onSaveAppearance={async (title, size) => {
+              setMutationBusy(true);
+              try {
+                adoptDashboard(await updateCard({ cardId: currentNote.id, title, size }));
+                setUndoMessage("已更新筆記");
+              } catch (error) {
+                setNotice(platformErrorMessage(error, "無法更新筆記。"));
+                throw error;
+              } finally {
+                setMutationBusy(false);
+              }
+            }}
+          />
+        ) : view.kind === "tool" && currentWidget ? (
+          <section className="content-workspace tool-workspace">
+            {view.tool === "todo" && <TodoDialog embedded backLabel={viewBackLabel} widget={currentWidget} onClose={returnToOrigin} onDashboardChanged={adoptDashboard} onChanged={() => void getWidgetSummary(currentWidget.id).then((summary) => setWidgetSummaries((current) => ({ ...current, [currentWidget.id]: summary }))).catch(() => undefined)} />}
+            {view.tool === "focus" && <FocusDialogSafe embedded backLabel={viewBackLabel} onClose={returnToOrigin} onChanged={(nextFocus) => setWidgetSummaries((current) => ({ ...current, [currentWidget.id]: { cardId: currentWidget.id, widgetKind: "focus", title: "Focus Timer", primaryValue: nextFocus.remainingSeconds == null ? `${nextFocus.settings.focusMinutes}:00` : `${Math.floor(nextFocus.remainingSeconds / 60).toString().padStart(2, "0")}:${(nextFocus.remainingSeconds % 60).toString().padStart(2, "0")}`, secondaryValue: nextFocus.status === "running" ? "進行中" : nextFocus.status === "paused" ? "已暫停" : "準備開始", items: [] } }))} />}
+            {view.tool === "usage" && <UsageDialog embedded backLabel={viewBackLabel} onClose={returnToOrigin} onChanged={(summary, tracking) => setWidgetSummaries((current) => ({ ...current, [currentWidget.id]: { cardId: currentWidget.id, widgetKind: "usage", title: "使用時間", primaryValue: `${Math.floor(summary.totalSeconds / 3600)} 小時`, secondaryValue: tracking.enabled ? (summary.apps.slice(0, 3).map((app) => app.displayName).join(" · ") || "等待使用紀錄") : "追蹤預設關閉", items: [] } }))} />}
+          </section>
+        ) : openGroup ? (
           <GroupDetailView
             group={openGroup}
             cards={openGroupCards}
@@ -1017,26 +1110,30 @@ function App() {
             editing={editing}
             busy={mutationBusy}
             onBack={leaveGroup}
-            onAddTarget={() => setAddGroupId(openGroup.id)}
+            backLabel={`返回 ${activePage.name}`}
+            onAddTarget={() => setOverlay({ kind: "add", pageId: openGroup.pageId, groupId: openGroup.id })}
             onCreateNote={() => void createNoteInContainer(openGroup.id)}
             onOpenCard={(card) => void launch(card)}
             onEditCard={(card) => {
-              if (card.cardType === "note") editNote(card, false);
-              else {
-                setCardEditError(null);
-                setCardBeingEdited(card);
-              }
+              if (card.cardType === "note") navigateToAppView({ kind: "note", cardId: card.id, origin: captureOrigin(), startEditing: true });
+              else { setCardEditError(null); setOverlay({ kind: "cardInspector", cardId: card.id }); }
             }}
-            onMoveOut={(card) => void commitMutation("已移出群組", () => moveCards({
-              cardIds: [card.id],
+            onMoveOutCards={(cards) => void commitMutation("已移出群組", () => moveCardsForUi({
+              cardIds: cards.map((card) => card.id),
               destinationPageId: openGroup.pageId,
               destinationGroupId: null,
               targetIndex: topLevelCards.length,
             }))}
-            onDeleteCard={(card) => void commitMutation("已移除卡片", () => deleteCards([card.id]))}
+            onDeleteCards={(cards) => void commitMutation("已移除卡片", () => deleteCards(cards.map((card) => card.id)))}
+            onReorderCards={(cards, targetIndex) => void commitMutation("已調整群組內順序", () => moveCardsForUi({
+              cardIds: cards.map((card) => card.id),
+              destinationPageId: openGroup.pageId,
+              destinationGroupId: openGroup.id,
+              targetIndex,
+            }))}
             onRepairCard={(card) => {
               setRepairError(null);
-              setRepairCardId(card.id);
+              setOverlay({ kind: "repair", cardId: card.id });
             }}
             onSetLaunchEnabled={toggleLaunchCard}
             onSaveResume={saveResumeNote}
@@ -1056,91 +1153,84 @@ function App() {
         <header className="topbar">
           <div><p className="eyebrow">{zhTW.brand.eyebrow}</p><h1>{activePage.name}</h1></div>
           <div className="topbar-actions">
-            <label className="search-box"><span aria-hidden="true">⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋這個頁面" /></label>
-            <button type="button" className="global-search-button" onClick={() => setGlobalSearchOpen(true)} title="搜尋所有地方 (Ctrl+K)">Ctrl K</button>
-            <button className="button secondary" disabled={!persistenceReady || mutationBusy} onClick={() => void createNoteInContainer(null)}>＋ 筆記</button>
-            <button className="button primary" disabled={!persistenceReady || mutationBusy} onClick={() => setDialogOpen(true)}>＋ 新增</button>
+            <div className={`unified-search${searchExpanded || query ? " is-expanded" : ""}`}>
+              <label className="search-box"><span aria-hidden="true">⌕</span><input ref={searchInputRef} aria-label="搜尋 Personal Place" value={query} onFocus={() => setSearchExpanded(true)} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setQuery("");
+                  setSearchExpanded(false);
+                  event.currentTarget.blur();
+                } else if (event.key === "Enter") {
+                  const result = searchScope === "all" ? searchResults[0] : null;
+                  if (result) { event.preventDefault(); chooseSearchResult(result); }
+                  else if (searchScope === "page" && visibleCards[0]) { event.preventDefault(); void launch(visibleCards[0]); }
+                }
+              }} placeholder={searchScope === "page" ? "搜尋這個頁面" : "搜尋所有地方"} /></label>
+              <div className="search-scope" aria-label="搜尋範圍"><button type="button" className={searchScope === "page" ? "is-active" : ""} onClick={() => setSearchScope("page")}>本頁</button><button type="button" className={searchScope === "all" ? "is-active" : ""} onClick={() => setSearchScope("all")}>所有地方</button></div>
+              {searchScope === "all" && query.trim() && <div className="unified-search-results" role="listbox" aria-label="搜尋結果">
+                {searchBusy && <p>搜尋中…</p>}
+                {!searchBusy && searchResults.slice(0, 12).map((result) => <button type="button" role="option" key={`${result.resultType}-${result.id}`} onClick={() => chooseSearchResult(result)}><span><strong>{result.title}</strong><small>{searchResultTypeLabel(result)}</small></span><em>{result.groupName ? `${result.pageName} › ${result.groupName}` : result.pageName}</em></button>)}
+                {!searchBusy && !searchResults.length && <p>找不到符合的內容</p>}
+              </div>}
+            </div>
+            <button className="button primary add-content-button" disabled={!persistenceReady || mutationBusy} onClick={() => setOverlay({ kind: "add", pageId: activePage.id })}>＋ 加入</button>
           </div>
         </header>
 
-        <section className="status-strip" aria-label="頁面狀態">
-          <span className="status-dot" />
-          <span>{!persistenceReady ? "正在準備本機資料…" : editing ? `編輯模式：已選取 ${selectedIds.size} 張卡片` : "本機優先 · 資料只存在這台裝置"}</span>
-          <strong>{visibleCards.length} 個項目</strong>
-        </section>
+        {!persistenceReady && <section className="status-strip" aria-live="polite"><span className="status-dot" /><span>正在準備本機資料…</span></section>}
+        {editing && <div className="edit-mode-hint"><span>整理模式</span><small>點選卡片後集中操作，或按住卡片空白處直接拖曳</small><button type="button" onClick={() => setSelectedIds(new Set(visibleCards.map((card) => card.id)))}>全選</button></div>}
 
-        {editing && (
-          <section className="edit-selection-bar" aria-label="選取操作">
-            <button type="button" onClick={() => setSelectedIds(new Set(visibleCards.map((card) => card.id)))}>全選目前頁面</button>
-            <button type="button" disabled={selectedIds.size === 0} onClick={() => { setSelectedIds(new Set()); setSelectionAnchor(null); }}>清除選取</button>
-            <button type="button" disabled={!canGroup || mutationBusy} onClick={() => void createSelectedGroup()}>建立群組</button>
-            <label>移到頁面
-              <select disabled={selectedIds.size === 0 || mutationBusy} value="" onChange={(event) => {
-                const destination = event.target.value;
-                if (destination) void commitMutation("已移動卡片", () => moveCards({ cardIds: [...selectedIds], destinationPageId: destination, destinationGroupId: null, targetIndex: state.cards.filter((card) => card.pageId === destination && card.parentGroupId === null).length }));
-              }}>
-                <option value="">選擇…</option>
-                {state.pages.filter((page) => page.id !== activePage.id).map((page) => <option key={page.id} value={page.id}>{page.name}</option>)}
-              </select>
-            </label>
-            <label>移入群組
-              <select disabled={!canMoveIntoGroup || groups.length === 0 || mutationBusy} value="" onChange={(event) => {
-                const groupId = event.target.value;
-                const group = groups.find((candidate) => candidate.id === groupId);
-                if (group) void commitMutation("已移入群組", () => moveCards({ cardIds: [...selectedIds], destinationPageId: group.pageId, destinationGroupId: group.id, targetIndex: pageCards.filter((card) => card.parentGroupId === group.id).length }));
-              }}>
-                <option value="">選擇…</option>
-                {groups.filter((group) => !selectedIds.has(group.id)).map((group) => <option key={group.id} value={group.id}>{group.title}</option>)}
-              </select>
-            </label>
-            <button className="danger-text" type="button" disabled={selectedIds.size === 0 || mutationBusy} onClick={() => void commitMutation("已移除卡片", () => deleteCards([...selectedIds]))}>移除選取</button>
-          </section>
-        )}
-
-        <section className={`launcher-grid ${editing ? "is-editing" : ""}`}>
+        <section className={`launcher-grid ${editing ? "is-editing" : ""}`} role={editing ? "listbox" : undefined} aria-multiselectable={editing ? true : undefined}>
           {visibleCards.map((card) => {
             const preview = previews[card.id];
+            const compactPreview = isCompactCardPreview(card, preview, shortcutPreviewPresentation[card.id]);
+            const recordPreviewDimensions = (event: React.SyntheticEvent<HTMLImageElement>) => {
+              if (!preview || preview.kind !== "thumbnail" || !isShortcutCard(card)) return;
+              const image = event.currentTarget;
+              const presentation = classifyShortcutPreview(image.naturalWidth, image.naturalHeight);
+              setShortcutPreviewPresentation((current) => current[card.id] === presentation
+                ? current
+                : { ...current, [card.id]: presentation });
+            };
             const targetProblem = card.cardType === "target" && (targetStatuses[card.id] === "missing" || targetStatuses[card.id] === "unavailable");
             const children = card.cardType === "group"
               ? pageCards.filter((candidate) => candidate.parentGroupId === card.id).sort((a, b) => a.position - b.position)
               : [];
             const widgetSummary = card.cardType === "widget" ? widgetSummaries[card.id] : null;
             const selected = selectedIds.has(card.id);
+            const editSummary = card.cardType === "group"
+              ? zhTW.card.placeSummary(children.length)
+              : card.cardType === "note"
+                ? card.noteText.trim() || zhTW.notes.empty
+                : card.subtitle.trim();
+            const editAccessibleName = [card.title, editSummary].filter(Boolean).join("，");
             return (
               <article
-                className={`launcher-card size-${card.size} tone-${card.tone}${preview ? ` has-preview preview-${preview.kind}` : ""}${selected ? " is-selected" : ""}${card.cardType === "group" ? " group-card" : ""}${card.cardType === "note" ? " note-card" : ""}${card.cardType === "widget" ? " widget-card" : ""}${targetProblem ? " is-target-missing" : ""}`}
+                className={`launcher-card size-${card.size} tone-${card.tone}${preview ? ` has-preview preview-${preview.kind}` : ""}${compactPreview ? " preview-compact" : ""}${selected ? " is-selected" : ""}${cardReorder.draggedId === card.id ? " is-dragging" : ""}${cardReorder.dragOverId === card.id && cardReorder.draggedId !== card.id ? " is-drag-over" : ""}${card.cardType === "group" ? " group-card" : ""}${card.cardType === "note" ? " note-card" : ""}${card.cardType === "widget" ? " widget-card" : ""}${targetProblem ? " is-target-missing" : ""}`}
                 key={card.id}
-                role={editing ? "option" : "button"}
+                data-card-reorder-id={card.id}
+                role={editing ? "option" : undefined}
                 aria-selected={editing ? selected : undefined}
-                aria-label={`${card.title}，${card.cardType === "group" ? zhTW.card.placeSummary(children.length) : card.cardType === "note" ? card.noteText.trim() || zhTW.notes.empty : card.subtitle}${editing ? `；${zhTW.card.keyboardReorderHint}` : ""}`}
-                tabIndex={0}
-                draggable={editing && !mutationBusy}
-                onDragStart={() => setDraggedId(card.id)}
-                onDragOver={(event) => editing && event.preventDefault()}
-                onDrop={() => {
-                  if (draggedId && draggedId !== card.id) {
-                    const index = topLevelCards.findIndex((candidate) => candidate.id === card.id);
-                    void commitMutation("已調整卡片順序", () => moveCards({ cardIds: [draggedId], destinationPageId: activePage.id, destinationGroupId: null, targetIndex: index }));
-                  }
-                  setDraggedId(null);
+                aria-label={editing ? `${editAccessibleName}；${zhTW.card.keyboardReorderHint}` : undefined}
+                tabIndex={editing ? 0 : undefined}
+                {...(editing ? cardReorder.bind(card.id) : {})}
+                onClick={(event) => {
+                  if (cardReorder.shouldSuppressClick()) return;
+                  if (editing) selectCard(event, card.id);
                 }}
-                onClick={(event) => editing ? selectCard(event, card.id) : void launch(card)}
                 onKeyDown={(event) => {
+                  if (!editing) return;
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    if (editing) {
-                      const result = changeSelection(
-                        selectedIds,
-                        card.id,
-                        visibleCards.map((candidate) => candidate.id),
-                        selectionAnchor,
-                        { toggle: event.ctrlKey || event.metaKey, range: event.shiftKey },
-                      );
-                      setSelectedIds(result.selected);
-                      setSelectionAnchor(result.anchorId);
-                    } else {
-                      void launch(card);
-                    }
+                    const result = changeSelection(
+                      selectedIds,
+                      card.id,
+                      visibleCards.map((candidate) => candidate.id),
+                      selectionAnchor,
+                      { toggle: event.ctrlKey || event.metaKey, range: event.shiftKey },
+                    );
+                    setSelectedIds(result.selected);
+                    setSelectionAnchor(result.anchorId);
                     return;
                   }
                   if (!editing || !event.altKey || mutationBusy) return;
@@ -1148,7 +1238,7 @@ function App() {
                   const targetIndex = keyboardReorderTarget(currentIndex, topLevelCards.length, event.key);
                   if (targetIndex !== null) {
                     event.preventDefault();
-                    void commitMutation("已用鍵盤調整卡片順序", () => moveCards({
+                    void commitMutation("已用鍵盤調整卡片順序", () => moveCardsForUi({
                       cardIds: [card.id],
                       destinationPageId: activePage.id,
                       destinationGroupId: null,
@@ -1157,7 +1247,8 @@ function App() {
                   }
                 }}
               >
-                {preview && preview.kind !== "icon" && <div className="card-preview-media" aria-hidden="true"><img src={preview.assetUrl} alt="" loading="lazy" decoding="async" /></div>}
+                {!editing && <button type="button" className="card-open-surface" aria-label={`開啟 ${card.title}`} onClick={() => void launch(card)} />}
+                {preview && !compactPreview && <div className="card-preview-media" aria-hidden="true"><img src={preview.assetUrl} alt="" loading="lazy" decoding="async" onLoad={recordPreviewDimensions} /></div>}
                 <div className="card-glow" />
                 <div className="card-heading">
                   {card.cardType === "group" ? (
@@ -1165,9 +1256,9 @@ function App() {
                       {children.slice(0, 4).map((child) => <span key={child.id}>{previews[child.id]?.kind === "icon" ? <img src={previews[child.id].assetUrl} alt="" loading="lazy" decoding="async" /> : child.symbol}</span>)}
                     </span>
                   ) : (
-                    <span className="item-symbol" aria-hidden="true">{preview?.kind === "icon" ? <img className="system-icon" src={preview.assetUrl} alt="" loading="lazy" decoding="async" /> : card.symbol}</span>
+                    <span className="item-symbol" aria-hidden="true">{preview && compactPreview ? <img className="system-icon" src={preview.assetUrl} alt="" loading="lazy" decoding="async" onLoad={recordPreviewDimensions} /> : card.symbol}</span>
                   )}
-                  <span className="kind-label">{kindLabel(card)}</span>
+                  {card.cardType !== "widget" && <span className="kind-label">{kindLabel(card)}</span>}
                 </div>
                 <div className="card-copy">
                   {renamingGroupId === card.id ? (
@@ -1200,30 +1291,31 @@ function App() {
                   ) : <p className={card.cardType === "note" ? "note-card-preview" : undefined}>{card.cardType === "group" ? `${children.length} 個項目` : card.cardType === "note" ? card.noteText.trim() || zhTW.notes.empty : card.subtitle}</p>}
                 </div>
                 {card.cardType === "target" && <span className="open-indicator" aria-hidden="true">↗</span>}
-                {targetProblem && !editing && <button type="button" className="card-repair-button" onClick={(event) => { event.stopPropagation(); setRepairError(null); setRepairCardId(card.id); }}>! 重新定位</button>}
-                {editing && (
-                  <div className="edit-controls" onClick={(event) => event.stopPropagation()}>
-                    {card.cardType === "group" && <button onClick={() => setGroupContentsId(card.id)} title="管理群組內容">▦</button>}
-                    <button onClick={() => {
-                      if (card.cardType === "note") editNote(card, false);
-                      else {
-                        setCardEditError(null);
-                        setCardBeingEdited(card);
-                      }
-                    }} title={card.cardType === "note" ? "編輯筆記" : "編輯卡片"}>⋯</button>
-                    <button onClick={() => void commitMutation("已調整卡片大小", () => updateCard({ cardId: card.id, size: (card.size === "wide" ? "square" : "wide") as ItemSize }))} title="切換大小">◫</button>
-                    {card.cardType === "group" && <button onClick={() => void commitMutation("已解散群組", () => ungroup(card.id))} title="解散群組">⇱</button>}
-                    <button onClick={() => void commitMutation("已移除卡片", () => deleteCards([card.id]))} title="移除">×</button>
-                  </div>
-                )}
+                {targetProblem && !editing && <button type="button" className="card-repair-button" onClick={(event) => { event.stopPropagation(); setRepairError(null); setOverlay({ kind: "repair", cardId: card.id }); }}>! 重新定位</button>}
+                {editing && selected && <button type="button" className="card-more-button" data-no-card-drag onClick={(event) => { event.stopPropagation(); setCardEditError(null); if (card.cardType === "note") navigateToAppView({ kind: "note", cardId: card.id, origin: captureOrigin(), startEditing: true }); else setOverlay({ kind: "cardInspector", cardId: card.id }); }} aria-label={`編輯 ${card.title}`}>⋯</button>}
               </article>
             );
           })}
 
           {visibleCards.length === 0 && (
-            <div className="empty-state"><span>＋</span><h2>這個頁面還沒有項目</h2><p>新增桌面應用程式、網頁或資料夾，建立自己的入口。</p><button className="button primary" disabled={!persistenceReady} onClick={() => setDialogOpen(true)}>新增第一個項目</button></div>
+            <div className="empty-state"><span>＋</span><h2>這個頁面還沒有項目</h2><p>加入 App、網站、檔案、資料夾或一張筆記。</p><button className="button primary" disabled={!persistenceReady} onClick={() => setOverlay({ kind: "add", pageId: activePage.id })}>加入第一個項目</button></div>
           )}
         </section>
+        {editing && <ContextActionBar
+          selected={selectedCards}
+          pages={state.pages}
+          groups={groups}
+          currentPageId={activePage.id}
+          busy={mutationBusy}
+          canGroup={canGroup}
+          onClear={() => { setSelectedIds(new Set()); setSelectionAnchor(null); }}
+          onEdit={(card) => card.cardType === "note" ? navigateToAppView({ kind: "note", cardId: card.id, origin: captureOrigin(), startEditing: true }) : setOverlay({ kind: "cardInspector", cardId: card.id })}
+          onResize={(card) => void commitMutation("已調整卡片大小", () => updateCard({ cardId: card.id, size: (card.size === "wide" ? "square" : "wide") as ItemSize }))}
+          onCreateGroup={() => void createSelectedGroup()}
+          onMoveToPage={(destination) => void commitMutation("已移動卡片", () => moveCardsForUi({ cardIds: [...selectedIds], destinationPageId: destination, destinationGroupId: null, targetIndex: state.cards.filter((card) => card.pageId === destination && card.parentGroupId === null).length }))}
+          onMoveToGroup={(groupId) => { const group = groups.find((candidate) => candidate.id === groupId); if (group) void commitMutation("已移入群組", () => moveCardsForUi({ cardIds: [...selectedIds], destinationPageId: group.pageId, destinationGroupId: group.id, targetIndex: pageCards.filter((card) => card.parentGroupId === group.id).length })); }}
+          onDelete={() => void commitMutation("已移除卡片", () => deleteCards([...selectedIds]))}
+        />}
           </>
         )}
       </main>
@@ -1238,55 +1330,29 @@ function App() {
       {nativeDragActive && <div className="native-drop-overlay" role="status"><div className="native-drop-target"><span aria-hidden="true">＋</span><strong>放開即可加入{openGroup ? "這個地方" : "目前頁面"}</strong><small>可同時加入多個檔案、捷徑或資料夾</small></div></div>}
       {dropResult && <div className="floating-ingest-result"><IngestResultPanel result={dropResult} busy={dropBusy} onDismiss={() => { dropApprovalsRef.current.clear(); dropResultRef.current = null; setDropResult(null); }} onRetryDuplicates={() => void retryDroppedProblems(dropResult.issues.filter((issue) => issue.code === "duplicate"), "duplicate")} onConfirmRisky={() => void retryDroppedProblems(dropResult.issues.filter((issue) => issue.code === "risky"), "risky")} /></div>}
 
-      {settingsOpen && <div className="dialog-backdrop" onMouseDown={() => setSettingsOpen(false)}><section ref={settingsDialogRef} tabIndex={-1} className="dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">SETTINGS</p><h2 id="settings-title">設定</h2></div><button className="icon-button" onClick={() => setSettingsOpen(false)} aria-label="關閉設定">×</button></div><div className="settings-list"><button className="settings-row" onClick={() => { setSettingsOpen(false); setGuideOpen(true); }}><span className="settings-row-icon" aria-hidden="true">?</span><span><strong>{zhTW.guide.settingsTitle}</strong><small>{zhTW.guide.settingsDescription}</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><button className="settings-row" onClick={() => { setSettingsOpen(false); setBackupOpen(true); }}><span className="settings-row-icon" aria-hidden="true">⇅</span><span><strong>備份與還原</strong><small>匯出或取代式還原本機資料</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><div className="settings-row cache-row"><span className="settings-row-icon" aria-hidden="true">▧</span><span><strong>縮圖儲存區</strong><small>{cacheInfo ? `${cacheInfo.entries} 個預覽 · ${formatStorageSize(cacheInfo.bytes)}` : "正在讀取使用量…"}</small></span><button className="cache-clear-button" disabled={cacheBusy || !cacheInfo || cacheInfo.entries === 0} onClick={() => void clearStoredPreviews()}>{cacheBusy ? "清除中" : "清除"}</button></div></div><footer className="settings-footer"><span>{zhTW.brand.name}</span><span>{zhTW.release.versionStatus("1.0.2")}</span></footer></section></div>}
+      {overlay?.kind === "settings" && <div className="dialog-backdrop" onMouseDown={() => setOverlay(null)}><section ref={settingsDialogRef} tabIndex={-1} className="dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">SETTINGS</p><h2 id="settings-title">設定</h2></div><button className="icon-button" onClick={() => setOverlay(null)} aria-label="關閉設定">×</button></div><div className="settings-list"><section className="settings-theme" aria-labelledby="settings-theme-title"><div><strong id="settings-theme-title">{zhTW.appearance.title}</strong><small>{zhTW.appearance.description}</small></div><div className="theme-options">{COLOR_THEMES.map((theme) => <button type="button" key={theme} className={`theme-option theme-${theme}`} aria-label={zhTW.appearance.options[theme]} aria-pressed={colorTheme === theme} onClick={() => setColorTheme(theme)}><span className="theme-preview" aria-hidden="true"><i /><i /><i /></span><strong>{zhTW.appearance.options[theme]}</strong>{colorTheme === theme && <b aria-hidden="true">✓</b>}</button>)}</div></section><button className="settings-row" onClick={() => setOverlay({ kind: "guide" })}><span className="settings-row-icon" aria-hidden="true">?</span><span><strong>{zhTW.guide.settingsTitle}</strong><small>{zhTW.guide.settingsDescription}</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><button className="settings-row" onClick={() => setOverlay({ kind: "backup" })}><span className="settings-row-icon" aria-hidden="true">⇅</span><span><strong>備份與還原</strong><small>匯出或取代式還原本機資料</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><div className="settings-row cache-row"><span className="settings-row-icon" aria-hidden="true">▧</span><span><strong>縮圖儲存區</strong><small>{cacheInfo ? `${cacheInfo.entries} 個預覽 · ${formatStorageSize(cacheInfo.bytes)}` : "正在讀取使用量…"}</small></span><button className="cache-clear-button" disabled={cacheBusy || !cacheInfo || cacheInfo.entries === 0} onClick={() => void clearStoredPreviews()}>{cacheBusy ? "清除中" : "清除"}</button></div></div><footer className="settings-footer"><span>{zhTW.brand.name}</span><span>{zhTW.release.versionStatus("1.4.0")}</span></footer></section></div>}
 
-      {guideOpen && <GuideDialog onClose={() => { setGuideOpen(false); setSettingsOpen(true); }} />}
+      {overlay?.kind === "guide" && <GuideDialog onClose={() => setOverlay({ kind: "settings" })} />}
 
-      {dialogOpen && <AddPanel pageId={activePage.id} performIngest={runSerializedIngest} onAdded={() => void refreshDashboard()} onCreateWidget={async (widgetKind) => {
-        const result = await createWidget(activePage.id, null, widgetKind);
+      {overlay?.kind === "add" && <AddPanel pageId={overlay.pageId} parentGroupId={overlay.groupId} performIngest={runSerializedIngest} onAdded={() => void refreshDashboard()} onCreateWidget={async (widgetKind) => {
+        const result = await createWidget(overlay.pageId, overlay.groupId ?? null, widgetKind);
         adoptDashboard(result.dashboard);
         setUndoMessage("已新增小工具");
-      }} onClose={() => setDialogOpen(false)} />}
-      {addGroupId && <AddPanel pageId={activePage.id} parentGroupId={addGroupId} performIngest={runSerializedIngest} onAdded={() => void refreshDashboard()} onCreateWidget={async (widgetKind) => {
-        const result = await createWidget(activePage.id, addGroupId, widgetKind);
-        adoptDashboard(result.dashboard);
-        setUndoMessage("已新增小工具");
-      }} onClose={() => setAddGroupId(null)} />}
-      {openTodoWidgetId && state.cards.find((card) => card.id === openTodoWidgetId && card.cardType === "widget") && <TodoDialog widget={state.cards.find((card) => card.id === openTodoWidgetId && card.cardType === "widget")!} onClose={() => setOpenTodoWidgetId(null)} onDashboardChanged={adoptDashboard} onChanged={() => {
-        const cardId = openTodoWidgetId;
-        if (cardId) void getWidgetSummary(cardId).then((summary) => setWidgetSummaries((current) => ({ ...current, [cardId]: summary }))).catch(() => undefined);
-      }} />}
-      {openFocusWidgetId && <FocusDialogSafe onClose={() => setOpenFocusWidgetId(null)} onChanged={(focusState) => setWidgetSummaries((current) => ({ ...current, [openFocusWidgetId]: { cardId: openFocusWidgetId, widgetKind: "focus", title: "Focus Timer", primaryValue: focusState.remainingSeconds == null ? `${focusState.settings.focusMinutes}:00` : `${Math.floor(focusState.remainingSeconds / 60).toString().padStart(2, "0")}:${(focusState.remainingSeconds % 60).toString().padStart(2, "0")}`, secondaryValue: focusState.status === "running" ? "進行中" : focusState.status === "paused" ? "已暫停" : "準備開始", items: [] } }))} />}
-      {openUsageWidgetId && <UsageDialog onClose={() => setOpenUsageWidgetId(null)} onChanged={(summary, tracking) => setWidgetSummaries((current) => ({ ...current, [openUsageWidgetId]: { cardId: openUsageWidgetId, widgetKind: "usage", title: "使用時間", primaryValue: `${Math.floor(summary.totalSeconds / 3600)} 小時`, secondaryValue: tracking.enabled ? (summary.apps.slice(0, 3).map((app) => app.displayName).join(" · ") || "等待使用紀錄") : "追蹤預設關閉", items: [] } }))} />}
-      {currentNoteBeingViewed && <NoteViewDialog note={currentNoteBeingViewed} onClose={() => setNoteBeingViewed(null)} onEdit={() => editNote(currentNoteBeingViewed, true)} />}
-      {currentNoteBeingEdited && <NoteEditDialog key={currentNoteBeingEdited.id} note={currentNoteBeingEdited} busy={mutationBusy} onSaveText={(value) => saveNoteText(currentNoteBeingEdited.id, value)} onSaveAppearance={async (title, size) => {
-        setMutationBusy(true);
-        try {
-          adoptDashboard(await updateCard({ cardId: currentNoteBeingEdited.id, title, size }));
-          setUndoMessage("已更新筆記");
-        } catch (error) {
-          setNotice(platformErrorMessage(error, "無法更新筆記。"));
-          throw error;
-        } finally {
-          setMutationBusy(false);
-        }
-      }} onClose={() => closeNoteEditor(currentNoteBeingEdited.id)} />}
-      {cardBeingEdited && <CardEditDialog key={cardBeingEdited.id} item={cardBeingEdited} busy={mutationBusy} error={cardEditError} onClose={() => { if (!mutationBusy) setCardBeingEdited(null); }} onSave={(values) => void persistCardAppearance(cardBeingEdited, values, false)} onReset={cardBeingEdited.cardType === "target" ? () => void persistCardAppearance(cardBeingEdited, { title: cardBeingEdited.title, subtitle: cardBeingEdited.subtitle, tone: cardBeingEdited.tone, size: cardBeingEdited.size }, true) : undefined} />}
-      {pageManagerOpen && <PageManagerDialog pages={state.pages} busy={mutationBusy} onClose={() => setPageManagerOpen(false)} onCreate={() => void commitMutation("已新增頁面", createPage)} onUpdate={(pageId, name, symbol) => void commitMutation("已更新頁面", () => updatePage(pageId, name, symbol))} onMove={(pageId, direction) => void commitMutation("已調整頁面順序", () => movePage(pageId, direction))} onDelete={(page: Page) => {
+      }} onClose={() => setOverlay(null)} onCreateNote={() => { setOverlay(null); void createNoteInContainer(overlay.groupId ?? null); }} />}
+      {cardBeingEdited && <CardEditDialog key={cardBeingEdited.id} item={cardBeingEdited} busy={mutationBusy} error={cardEditError} onClose={() => { if (!mutationBusy) setOverlay(null); }} onSave={(values) => void persistCardAppearance(cardBeingEdited, values, false)} onReset={cardBeingEdited.cardType === "target" ? () => void persistCardAppearance(cardBeingEdited, { title: cardBeingEdited.title, subtitle: cardBeingEdited.subtitle, tone: cardBeingEdited.tone, size: cardBeingEdited.size }, true) : undefined} />}
+      {overlay?.kind === "pages" && <PageManagerDialog pages={state.pages} busy={mutationBusy} onClose={() => setOverlay(null)} onCreate={() => void commitMutation("已新增頁面", createPage)} onUpdate={(pageId, name, symbol) => void commitMutation("已更新頁面", () => updatePage(pageId, name, symbol))} onMove={(pageId, direction) => void commitMutation("已調整頁面順序", () => movePage(pageId, direction))} onReorder={(pageId, targetIndex) => void commitMutation("已拖曳調整頁面順序", () => reorderPageForUi(pageId, targetIndex))} onDelete={(page: Page) => {
         const count = state.cards.filter((card) => card.pageId === page.id).length;
         if (count > 0 && !window.confirm(`「${page.name}」包含 ${count} 張卡片，確定要刪除嗎？`)) return;
         void commitMutation("已刪除頁面", () => deletePage(page.id));
       }} />}
-      {groupContentsId && <div className="dialog-backdrop" onMouseDown={() => setGroupContentsId(null)}><section ref={groupContentsDialogRef} tabIndex={-1} className="dialog group-contents-dialog" role="dialog" aria-modal="true" aria-labelledby="group-contents-title" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">GROUP CONTENTS</p><h2 id="group-contents-title">群組內容</h2></div><button className="icon-button" onClick={() => setGroupContentsId(null)} aria-label="關閉群組內容">×</button></div><div className="group-contents-list">{groupContents.length === 0 ? <p className="muted-copy">這個群組目前沒有卡片。</p> : groupContents.map((card) => <div key={card.id} className="group-content-row"><span>{card.symbol}</span><strong>{card.title}</strong><button disabled={mutationBusy} onClick={() => void commitMutation("已移出群組", () => moveCards({ cardIds: [card.id], destinationPageId: card.pageId, destinationGroupId: null, targetIndex: topLevelCards.length }))}>移出群組</button></div>)}</div><div className="dialog-actions"><button className="button secondary" onClick={() => setGroupContentsId(null)}>完成</button></div></section></div>}
-      {globalSearchOpen && <GlobalSearchDialog onClose={() => setGlobalSearchOpen(false)} onSearch={runGlobalSearch} onChoose={chooseSearchResult} />}
-      {repairCard && <TargetRepairDialog card={repairCard} busy={mutationBusy} error={repairError} onClose={() => { setRepairCardId(null); setRepairError(null); }} onRelink={(path) => performRelink(repairCard, path)} onRemove={() => {
+      {repairCard && <TargetRepairDialog card={repairCard} busy={mutationBusy} error={repairError} onClose={() => { setOverlay(null); setRepairError(null); }} onRelink={(path) => performRelink(repairCard, path)} onRemove={() => {
         void commitMutation("已移除失效卡片", () => deleteCards([repairCard.id])).then((result) => {
-          if (result) setRepairCardId(null);
+          if (result) setOverlay(null);
         });
       }} />}
-      {backupOpen && <BackupDialog onClose={() => setBackupOpen(false)} onExport={exportBackup} onInspect={inspectBackup} onRestore={restoreBackup} onRestored={(result) => {
+      {overlay?.kind === "backup" && <BackupDialog onClose={() => setOverlay(null)} onExport={exportBackup} onInspect={inspectBackup} onRestore={restoreBackup} onRestored={(result) => {
         adoptDashboard(result.dashboard);
-        setOpenGroupId(null);
+        showDashboard(result.dashboard.pages[0]?.id ?? "home");
         setSelectedIds(new Set());
         setPreviewGeneration((current) => current + 1);
       }} />}

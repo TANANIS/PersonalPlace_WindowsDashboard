@@ -11,7 +11,8 @@ describe("PageManagerDialog", () => {
         onClose={() => undefined}
         onCreate={() => undefined}
         onUpdate={() => undefined}
-        onMove={() => undefined}
+      onMove={() => undefined}
+      onReorder={() => undefined}
         onDelete={() => undefined}
       />,
     );
@@ -27,7 +28,8 @@ describe("PageManagerDialog", () => {
         onClose={() => undefined}
         onCreate={() => undefined}
         onUpdate={onUpdate}
-        onMove={() => undefined}
+      onMove={() => undefined}
+      onReorder={() => undefined}
         onDelete={() => undefined}
       />,
     );

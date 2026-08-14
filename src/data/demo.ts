@@ -1,7 +1,13 @@
 import type { DashboardState } from "../types";
 
 export const placesDemoState: DashboardState = {
-  pages: [{ id: "home", name: "我的地方", symbol: "⌂" }],
+  pages: [
+    { id: "home", name: "我的地方", symbol: "⌂" },
+    { id: "study", name: "學習", symbol: "○" },
+    { id: "gaming", name: "遊戲", symbol: "○" },
+    { id: "live2d", name: "Live2D", symbol: "○" },
+    { id: "drawing", name: "繪圖", symbol: "○" },
+  ],
   cards: [
     {
       id: "group-unity",
@@ -77,6 +83,16 @@ export const placesDemoState: DashboardState = {
       id: "widget-usage-demo", pageId: "home", parentGroupId: null, cardType: "widget", targetId: null,
       title: "使用時間", subtitle: "", kind: "note", symbol: "◴", tone: "violet", size: "square", position: 3,
       noteText: "", resumeNote: "", launchEnabled: false, lastOpenedAt: null, widgetKind: "usage", widgetResourceId: null,
+    },
+    {
+      id: "demo-shortcut", pageId: "home", parentGroupId: null, cardType: "target", targetId: "target-demo-shortcut",
+      title: "Godot", subtitle: "Windows 捷徑", kind: "local", symbol: "↗", tone: "cyan", size: "square", position: 4,
+      noteText: "", resumeNote: "", launchEnabled: false, lastOpenedAt: null,
+    },
+    {
+      id: "demo-image", pageId: "home", parentGroupId: null, cardType: "target", targetId: "target-demo-image",
+      title: "介面參考", subtitle: "圖片檔案", kind: "local", symbol: "▧", tone: "rose", size: "wide", position: 5,
+      noteText: "", resumeNote: "", launchEnabled: false, lastOpenedAt: null,
     },
   ],
 };

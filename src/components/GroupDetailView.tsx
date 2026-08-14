@@ -5,6 +5,7 @@ import type {
   WidgetSummary,
 } from "../lib/platform";
 import type { DashboardCard } from "../types";
+import { usePointerReorder } from "../lib/pointerReorder";
 
 interface GroupDetailViewProps {
   group: DashboardCard;
@@ -15,12 +16,14 @@ interface GroupDetailViewProps {
   editing: boolean;
   busy: boolean;
   onBack: () => void;
+  backLabel?: string;
   onAddTarget: () => void;
   onCreateNote: () => void;
   onOpenCard: (card: DashboardCard) => void;
   onEditCard: (card: DashboardCard) => void;
-  onMoveOut: (card: DashboardCard) => void;
-  onDeleteCard: (card: DashboardCard) => void;
+  onMoveOutCards: (cards: DashboardCard[]) => void;
+  onDeleteCards: (cards: DashboardCard[]) => void;
+  onReorderCards: (cards: DashboardCard[], targetIndex: number) => void;
   onRepairCard: (card: DashboardCard) => void;
   onSetLaunchEnabled: (card: DashboardCard, enabled: boolean) => Promise<void>;
   onSaveResume: (value: string) => Promise<void>;
@@ -45,12 +48,14 @@ export function GroupDetailView({
   editing,
   busy,
   onBack,
+  backLabel = "返回頁面",
   onAddTarget,
   onCreateNote,
   onOpenCard,
   onEditCard,
-  onMoveOut,
-  onDeleteCard,
+  onMoveOutCards,
+  onDeleteCards,
+  onReorderCards,
   onRepairCard,
   onSetLaunchEnabled,
   onSaveResume,
@@ -60,6 +65,9 @@ export function GroupDetailView({
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [launching, setLaunching] = useState(false);
   const [launchResult, setLaunchResult] = useState<GroupLaunchResult | null>(null);
+  const [resumeExpanded, setResumeExpanded] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const savedValueRef = useRef(group.resumeNote);
 
   useEffect(() => {
@@ -67,7 +75,17 @@ export function GroupDetailView({
     savedValueRef.current = group.resumeNote;
     setSaveState("idle");
     setLaunchResult(null);
+    setResumeExpanded(false);
+    setSelectedIds([]);
+    setSelectionAnchor(null);
   }, [group.id]);
+
+  useEffect(() => {
+    if (!editing) {
+      setSelectedIds([]);
+      setSelectionAnchor(null);
+    }
+  }, [editing]);
 
   useEffect(() => {
     if (resumeDraft === savedValueRef.current) return;
@@ -87,6 +105,35 @@ export function GroupDetailView({
     () => cards.filter((card) => card.cardType === "target" && card.launchEnabled).length,
     [cards],
   );
+  const selectedCards = useMemo(
+    () => cards.filter((card) => selectedIds.includes(card.id)),
+    [cards, selectedIds],
+  );
+  const cardReorder = usePointerReorder("data-group-card-reorder-id", (_sourceId, targetId, draggedIds) => {
+    const targetIndex = cards.findIndex((card) => card.id === targetId);
+    const draggedCards = cards.filter((card) => draggedIds.includes(card.id));
+    if (draggedCards.length && targetIndex >= 0) onReorderCards(draggedCards, targetIndex);
+  }, !editing || busy, {
+    getDragIds: (sourceId) => selectedIds.includes(sourceId)
+      ? cards.filter((card) => selectedIds.includes(card.id)).map((card) => card.id)
+      : [sourceId],
+  });
+
+  function selectCard(card: DashboardCard, shiftKey = false, toggle = false) {
+    if (shiftKey && selectionAnchor) {
+      const start = cards.findIndex((item) => item.id === selectionAnchor);
+      const end = cards.findIndex((item) => item.id === card.id);
+      if (start >= 0 && end >= 0) {
+        const range = cards.slice(Math.min(start, end), Math.max(start, end) + 1).map((item) => item.id);
+        setSelectedIds((current) => [...new Set([...current, ...range])]);
+        return;
+      }
+    }
+    setSelectionAnchor(card.id);
+    setSelectedIds((current) => toggle
+      ? current.includes(card.id) ? current.filter((id) => id !== card.id) : [...current, card.id]
+      : [card.id]);
+  }
 
   async function runLaunch() {
     if (launching || launchCount === 0) return;
@@ -105,7 +152,7 @@ export function GroupDetailView({
       <header className="place-detail-header">
         <div>
           <button type="button" className="back-button" onClick={onBack}>
-            ← 返回頁面
+            ← {backLabel}
           </button>
           <p className="eyebrow">YOUR PLACE</p>
           <h1 id="place-detail-title">{group.title}</h1>
@@ -122,6 +169,13 @@ export function GroupDetailView({
           </button>
         </div>
       </header>
+
+      <section className={`place-resume-summary${resumeExpanded ? " is-expanded" : ""}`}>
+        <button type="button" className="place-resume-toggle" aria-expanded={resumeExpanded} onClick={() => setResumeExpanded((current) => !current)}>
+          <span><small>上次做到這裡</small><strong>{resumeDraft.trim() || "還沒有記錄進度"}</strong></span><span aria-hidden="true">{resumeExpanded ? "收起" : resumeDraft.trim() ? "展開" : "新增"}</span>
+        </button>
+        {resumeExpanded && <div className="place-resume-editor"><label className="sr-only" htmlFor="resume-note">上次做到這裡</label><textarea id="resume-note" value={resumeDraft} maxLength={2000} rows={5} autoFocus placeholder="例如：角色移動完成，下一步做跳躍動畫。" onChange={(event) => setResumeDraft(event.target.value)} /><div className={`save-state is-${saveState}`} role="status">{saveState === "saving" && "保存中…"}{saveState === "saved" && "已保存"}{saveState === "failed" && "保存失敗，內容仍保留在畫面上"}{saveState === "idle" && `${resumeDraft.length} / 2,000`}</div></div>}
+      </section>
 
       <div className="place-detail-layout">
         <div className="place-main-column">
@@ -140,18 +194,41 @@ export function GroupDetailView({
             </div>
           </div>
 
-          <div className="place-card-grid">
-            {cards.map((card) => {
+          <div className="place-card-grid" role={editing ? "listbox" : undefined} aria-multiselectable={editing ? true : undefined}>
+            {cards.map((card, index) => {
               const preview = previews[card.id];
               const widgetSummary = card.cardType === "widget" ? widgetSummaries[card.id] : null;
               const targetProblem = card.cardType === "target" && (targetStatuses[card.id] === "missing" || targetStatuses[card.id] === "unavailable");
               return (
-                <article className={`place-item tone-${card.tone}${targetProblem ? " is-target-missing" : ""}`} key={card.id}>
-                  <button
-                    type="button"
-                    className="place-item-main"
-                    onClick={() => onOpenCard(card)}
-                  >
+                <article
+                  className={`place-item tone-${card.tone}${targetProblem ? " is-target-missing" : ""}${selectedIds.includes(card.id) ? " is-selected" : ""}${cardReorder.draggedIds.includes(card.id) ? " is-dragging" : ""}${cardReorder.dragOverId === card.id && !cardReorder.draggedIds.includes(card.id) ? " is-drag-over" : ""}`}
+                  key={card.id}
+                  data-group-card-reorder-id={card.id}
+                  role={editing ? "option" : undefined}
+                  aria-selected={editing ? selectedIds.includes(card.id) : undefined}
+                  aria-label={editing ? `${card.title}；Alt 加方向鍵可調整順序` : undefined}
+                  tabIndex={editing ? 0 : undefined}
+                  onClick={(event) => {
+                    if (!editing || cardReorder.shouldSuppressClick()) return;
+                    if ((event.target as HTMLElement).closest("button, input, select, textarea, a, [data-no-card-select]")) return;
+                    selectCard(card, event.shiftKey, event.ctrlKey || event.metaKey);
+                  }}
+                  onKeyDown={(event) => {
+                    if (!editing) return;
+                    if (event.key === " " || event.key === "Enter") {
+                      event.preventDefault();
+                      selectCard(card, event.shiftKey, event.ctrlKey || event.metaKey);
+                    } else if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowUp")) {
+                      event.preventDefault();
+                      onReorderCards([card], Math.max(0, index - 1));
+                    } else if (event.altKey && (event.key === "ArrowRight" || event.key === "ArrowDown")) {
+                      event.preventDefault();
+                      onReorderCards([card], Math.min(cards.length - 1, index + 1));
+                    }
+                  }}
+                  {...(editing ? cardReorder.bind(card.id) : {})}
+                >
+                  {editing ? <div className="place-item-main" aria-hidden="true">
                     <span className="item-symbol" aria-hidden="true">
                       {preview?.kind === "icon" ? (
                         <img src={preview.assetUrl} alt="" loading="lazy" decoding="async" />
@@ -161,8 +238,13 @@ export function GroupDetailView({
                       <strong>{card.title}</strong>
                       <small>{card.cardType === "note" ? card.noteText || "空白筆記" : card.cardType === "widget" ? widgetSummary?.primaryValue ?? "載入中…" : card.subtitle}</small>
                     </span>
-                  </button>
-                  {card.cardType === "target" && (
+                  </div> : <button type="button" className="place-item-main" onClick={() => onOpenCard(card)}>
+                    <span className="item-symbol" aria-hidden="true">
+                      {preview?.kind === "icon" ? <img src={preview.assetUrl} alt="" loading="lazy" decoding="async" /> : card.symbol}
+                    </span>
+                    <span><strong>{card.title}</strong><small>{card.cardType === "note" ? card.noteText || "空白筆記" : card.cardType === "widget" ? widgetSummary?.primaryValue ?? "載入中…" : card.subtitle}</small></span>
+                  </button>}
+                  {editing && selectedIds.includes(card.id) && card.cardType === "target" && (
                     <label className="launch-toggle">
                       <input
                         type="checkbox"
@@ -176,16 +258,9 @@ export function GroupDetailView({
                     </label>
                   )}
                   {targetProblem && (
-                    <button type="button" className="repair-target-button" onClick={() => onRepairCard(card)}>
+                    <button type="button" className="repair-target-button" data-no-card-select onClick={() => onRepairCard(card)}>
                       ! 重新定位
                     </button>
-                  )}
-                  {editing && (
-                    <div className="place-item-controls">
-                      <button type="button" onClick={() => onEditCard(card)}>編輯</button>
-                      <button type="button" onClick={() => onMoveOut(card)}>移出</button>
-                      <button type="button" className="danger-text" onClick={() => onDeleteCard(card)}>移除</button>
-                    </div>
                   )}
                 </article>
               );
@@ -198,26 +273,18 @@ export function GroupDetailView({
               </div>
             )}
           </div>
+
+          {editing && selectedCards.length > 0 && <div className="context-action-bar place-action-bar" role="toolbar" aria-label="所選項目操作">
+            <strong>{selectedCards.length} 個項目</strong>
+            {selectedCards.length === 1 && <button type="button" onClick={() => onEditCard(selectedCards[0])}>改名與外觀</button>}
+            <button type="button" onClick={() => onMoveOutCards(selectedCards)}>移出這個地方</button>
+            <button type="button" className="danger-text" onClick={() => onDeleteCards(selectedCards)}>移除</button>
+            <button type="button" aria-label="清除選取" onClick={() => setSelectedIds([])}>×</button>
+          </div>}
         </div>
 
-        <aside className="place-context-panel">
-          <label htmlFor="resume-note">上次做到這裡</label>
-          <textarea
-            id="resume-note"
-            value={resumeDraft}
-            maxLength={2000}
-            rows={8}
-            placeholder="例如：角色移動完成，下一步做跳躍動畫。"
-            onChange={(event) => setResumeDraft(event.target.value)}
-          />
-          <div className={`save-state is-${saveState}`} role="status">
-            {saveState === "saving" && "保存中…"}
-            {saveState === "saved" && "已保存"}
-            {saveState === "failed" && "保存失敗，內容仍保留在畫面上"}
-            {saveState === "idle" && `${resumeDraft.length} / 2,000`}
-          </div>
-
-          {launchResult && (
+        {launchResult && <aside className="place-context-panel">
+          {(
             <section className="launch-result-panel" aria-label="開啟結果">
               <div>
                 <strong>開啟結果</strong>
@@ -247,6 +314,7 @@ export function GroupDetailView({
             </section>
           )}
         </aside>
+        }
       </div>
     </section>
   );

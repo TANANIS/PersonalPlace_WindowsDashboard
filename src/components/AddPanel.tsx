@@ -19,6 +19,7 @@ interface AddPanelProps {
   onClose: () => void;
   performIngest?: (request: IngestRequest) => Promise<IngestResult>;
   onCreateWidget?: (kind: WidgetKind) => Promise<void>;
+  onCreateNote?: () => void;
 }
 
 interface IngestResultPanelProps {
@@ -247,6 +248,7 @@ export function AddPanel({
   onClose,
   performIngest = ingestItems,
   onCreateWidget,
+  onCreateNote,
 }: AddPanelProps) {
   const [inputValue, setInputValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -477,6 +479,8 @@ export function AddPanel({
             <small>支援多個檔案、EXE、捷徑與資料夾</small>
           </div>
         </div>
+
+        {onCreateNote && <button type="button" className="add-note-entry" onClick={onCreateNote}><span aria-hidden="true">≡</span><span><strong>建立筆記</strong><small>加入一張可閱讀與編輯的純文字筆記</small></span><span aria-hidden="true">＋</span></button>}
 
         {onCreateWidget && (
           <section className="add-widget-section" aria-labelledby="add-widget-title">

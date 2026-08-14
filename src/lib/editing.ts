@@ -10,6 +10,72 @@ export interface SelectionModifiers {
 
 export type CardReorderKey = "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown";
 
+interface PositionedCard {
+  id: string;
+  pageId: string;
+  parentGroupId: string | null;
+  cardType: string;
+  position: number;
+}
+
+interface DashboardLike<TCard extends PositionedCard, TPage> {
+  pages: TPage[];
+  cards: TCard[];
+}
+
+interface MoveCardsLike {
+  cardIds: string[];
+  destinationPageId: string;
+  destinationGroupId: string | null;
+  targetIndex: number;
+}
+
+export function moveDashboardCardsInMemory<TCard extends PositionedCard, TPage>(
+  state: DashboardLike<TCard, TPage>,
+  request: MoveCardsLike,
+): DashboardLike<TCard, TPage> {
+  const movingIds = new Set(request.cardIds);
+  const moving = state.cards
+    .filter((card) => movingIds.has(card.id))
+    .sort((left, right) => left.position - right.position);
+  if (moving.length === 0) return state;
+
+  const sourceContainers = new Set(moving.map((card) => `${card.pageId}\u0000${card.parentGroupId ?? ""}`));
+  const destinationKey = `${request.destinationPageId}\u0000${request.destinationGroupId ?? ""}`;
+  const nextCards = state.cards.map((card) => {
+    if (movingIds.has(card.id)) {
+      return { ...card, pageId: request.destinationPageId, parentGroupId: request.destinationGroupId };
+    }
+    if (moving.some((candidate) => candidate.cardType === "group" && candidate.id === card.parentGroupId)) {
+      return { ...card, pageId: request.destinationPageId };
+    }
+    return { ...card };
+  });
+
+  const affected = new Set([...sourceContainers, destinationKey]);
+  for (const key of affected) {
+    const [pageId, parentGroupIdValue] = key.split("\u0000");
+    const parentGroupId = parentGroupIdValue || null;
+    const container = nextCards
+      .filter((card) => card.pageId === pageId && card.parentGroupId === parentGroupId)
+      .sort((left, right) => left.position - right.position);
+    const ordered = key === destinationKey
+      ? (() => {
+          const withoutMoving = container.filter((card) => !movingIds.has(card.id));
+          const inserted = moving.map((card) => nextCards.find((candidate) => candidate.id === card.id)!).filter(Boolean);
+          const targetIndex = Math.max(0, Math.min(request.targetIndex, withoutMoving.length));
+          return [...withoutMoving.slice(0, targetIndex), ...inserted, ...withoutMoving.slice(targetIndex)];
+        })()
+      : container;
+    ordered.forEach((card, position) => {
+      const stored = nextCards.find((candidate) => candidate.id === card.id);
+      if (stored) stored.position = position;
+    });
+  }
+
+  return { pages: state.pages, cards: nextCards };
+}
+
 export function keyboardReorderTarget(
   currentIndex: number,
   itemCount: number,

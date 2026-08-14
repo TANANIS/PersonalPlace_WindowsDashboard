@@ -47,8 +47,9 @@ function renderView(overrides: Record<string, unknown> = {}) {
     onCreateNote: vi.fn(),
     onOpenCard: vi.fn(),
     onEditCard: vi.fn(),
-    onMoveOut: vi.fn(),
-    onDeleteCard: vi.fn(),
+    onMoveOutCards: vi.fn(),
+    onDeleteCards: vi.fn(),
+    onReorderCards: vi.fn(),
     onRepairCard: vi.fn(),
     onSetLaunchEnabled: vi.fn().mockResolvedValue(undefined),
     onSaveResume: vi.fn().mockResolvedValue(undefined),
@@ -69,6 +70,7 @@ afterEach(() => {
 describe("GroupDetailView", () => {
   it("在 500ms 後自動保存上次做到這裡", async () => {
     const props = renderView();
+    fireEvent.click(screen.getByRole("button", { name: /上次做到這裡/ }));
     fireEvent.change(screen.getByLabelText("上次做到這裡"), {
       target: { value: "角色移動完成" },
     });
@@ -81,7 +83,8 @@ describe("GroupDetailView", () => {
   });
 
   it("Launch Set 預設不勾選，勾選時只傳卡片 ID 對應的卡片", () => {
-    const props = renderView();
+    const props = renderView({ editing: true });
+    fireEvent.click(screen.getByText("Unity"));
     const checkbox = screen.getByRole("checkbox", { name: "一次開啟" });
     expect(checkbox).not.toBeChecked();
     fireEvent.click(checkbox);

@@ -255,6 +255,81 @@ export function isTauriRuntime(): boolean {
   return "__TAURI_INTERNALS__" in window;
 }
 
+function isBrowserDemo(): boolean {
+  return !isTauriRuntime() && new URLSearchParams(window.location.search).has("demo");
+}
+
+let browserTodoState: TodoOverview | null = null;
+let browserFocusState: FocusState | null = null;
+let browserTrackingSettings: TrackingSettings = { enabled: true, idleSeconds: 300 };
+
+function browserDemoTodoOverview(): TodoOverview {
+  if (browserTodoState) return structuredClone(browserTodoState);
+  const now = Math.floor(Date.now() / 1000);
+  const lists: TodoList[] = [
+    { id: "demo-today", title: "今天", position: 0, createdAt: now, updatedAt: now, archivedAt: null },
+    { id: "demo-personal", title: "個人計畫", position: 1, createdAt: now, updatedAt: now, archivedAt: null },
+  ];
+  const base = (id: string, listId: string, title: string, position: number, extra: Partial<TodoItem> = {}): TodoItem => ({
+    id, listId, parentId: null, seriesId: null, title, notes: "", status: "active", priority: "none",
+    dueAt: null, position, recurrenceKind: "none", recurrenceInterval: 1, reminderOffsetMinutes: null,
+    reminderState: "none", createdAt: now, updatedAt: now, completedAt: null, deletedAt: null, ...extra,
+  });
+  browserTodoState = {
+    lists,
+    items: [
+      base("demo-task-1", "demo-today", "整理 Unity 專案輸入設定", 0, { priority: "high", dueAt: now + 3_600 }),
+      base("demo-task-2", "demo-today", "完成角色跳躍動畫", 1, { priority: "medium", dueAt: now + 14_400 }),
+      base("demo-task-3", "demo-today", "記錄下一次練習進度", 2, { notes: "把參數整理到 Inspector。" }),
+      base("demo-subtask", "demo-today", "確認鍵盤與控制器輸入", 0, { parentId: "demo-task-1" }),
+      base("demo-task-4", "demo-personal", "整理下載資料夾", 0),
+    ],
+  };
+  return structuredClone(browserTodoState);
+}
+
+function browserDemoUsageSummary(from: number, to: number): UsageSummary {
+  const now = Math.min(Math.floor(Date.now() / 1000), to);
+  const spanDays = Math.max(1, Math.ceil((to - from) / 86_400));
+  const apps: UsageApp[] = [
+    { appId: "demo-vscode", displayName: "Visual Studio Code", seconds: 5_820 * spanDays, excluded: false },
+    { appId: "demo-edge", displayName: "Microsoft Edge", seconds: 3_960 * spanDays, excluded: false },
+    { appId: "demo-unity", displayName: "Unity", seconds: 2_740 * spanDays, excluded: false },
+    { appId: "demo-discord", displayName: "Discord", seconds: 1_380 * spanDays, excluded: false },
+  ];
+  return {
+    totalSeconds: apps.reduce((total, app) => total + app.seconds, 0),
+    apps,
+    segments: apps.map((app, index) => ({ appId: app.appId, displayName: app.displayName, startedAt: now - (index + 1) * 2_100, endedAt: now - (index + 1) * 2_100 + Math.min(app.seconds, 1_800) })),
+  };
+}
+
+function browserDemoFocusState(): FocusState {
+  if (!browserFocusState) {
+    browserFocusState = {
+      status: "idle",
+      phase: "focus",
+      cycleCount: 2,
+      startedAt: null,
+      endsAt: null,
+      remainingSeconds: 25 * 60,
+      linkedTodoId: null,
+      linkedGroupId: null,
+      updatedAt: Math.floor(Date.now() / 1000),
+      settings: {
+        focusMinutes: 25,
+        shortBreakMinutes: 5,
+        longBreakMinutes: 15,
+        longBreakInterval: 4,
+        autoStartFocus: false,
+        autoStartBreak: false,
+        notificationsEnabled: true,
+      },
+    };
+  }
+  return structuredClone(browserFocusState);
+}
+
 export async function initializeWorkspace(
   legacyState: WorkspaceState | null,
 ): Promise<DashboardState> {
@@ -291,7 +366,18 @@ export async function ingestItems(request: IngestRequest): Promise<IngestResult>
 export async function getLauncherPreview(
   cardId: string,
 ): Promise<LauncherPreview | null> {
-  if (!isTauriRuntime()) return null;
+  if (!isTauriRuntime()) {
+    if (!isBrowserDemo()) return null;
+    if (cardId === "demo-shortcut") {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#68e0ff"/><stop offset="1" stop-color="#5277ff"/></linearGradient></defs><rect width="128" height="128" rx="30" fill="#0d1a28"/><path d="M64 23 101 44v41L64 106 27 85V44l37-21Z" fill="url(#g)"/><path d="M64 42 83 53v22L64 86 45 75V53l19-11Z" fill="#0d1a28"/><circle cx="64" cy="64" r="7" fill="#b7f4ff"/></svg>`;
+      return { assetUrl: `data:image/svg+xml,${encodeURIComponent(svg)}`, kind: "thumbnail" };
+    }
+    if (cardId === "demo-image") {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 220"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4f67d8"/><stop offset=".48" stop-color="#7b4a9b"/><stop offset="1" stop-color="#e17b79"/></linearGradient></defs><rect width="360" height="220" rx="24" fill="url(#g)"/><circle cx="286" cy="54" r="30" fill="#ffd89b" opacity=".9"/><path d="m0 177 82-76 65 55 55-42 83 63 75-70v113H0Z" fill="#101827" opacity=".74"/><path d="m0 194 91-54 58 38 65-32 58 34 88-47v87H0Z" fill="#0a101b" opacity=".8"/></svg>`;
+      return { assetUrl: `data:image/svg+xml,${encodeURIComponent(svg)}`, kind: "thumbnail" };
+    }
+    return null;
+  }
   return invoke<LauncherPreview | null>("get_item_preview", { cardId });
 }
 
@@ -362,6 +448,21 @@ export async function createWidget(
 }
 
 export async function getWidgetSummary(cardId: string): Promise<WidgetSummary> {
+  if (isBrowserDemo()) {
+    if (cardId.includes("focus")) {
+      const focus = browserDemoFocusState();
+      const remaining = focus.status === "running" && focus.endsAt ? Math.max(0, focus.endsAt - Math.floor(Date.now() / 1000)) : focus.remainingSeconds ?? focus.settings.focusMinutes * 60;
+      return { cardId, widgetKind: "focus", title: "Focus Timer", primaryValue: `${Math.floor(remaining / 60).toString().padStart(2, "0")}:${(remaining % 60).toString().padStart(2, "0")}`, secondaryValue: focus.status === "running" ? "進行中" : focus.status === "paused" ? "已暫停" : "準備開始", items: [] };
+    }
+    if (cardId.includes("usage")) {
+      const now = Math.floor(Date.now() / 1000);
+      const usage = browserDemoUsageSummary(now - 86_400, now);
+      return { cardId, widgetKind: "usage", title: "使用時間", primaryValue: `${Math.floor(usage.totalSeconds / 3600)} 小時 ${Math.floor((usage.totalSeconds % 3600) / 60)} 分`, secondaryValue: usage.apps.slice(0, 3).map((app) => app.displayName).join(" · "), items: [] };
+    }
+    const overview = browserDemoTodoOverview();
+    const items = overview.items.filter((item) => item.status === "active" && item.parentId === null).sort((left, right) => left.position - right.position).slice(0, 3);
+    return { cardId, widgetKind: "todo", title: "待辦事項", primaryValue: `${overview.items.filter((item) => item.status === "active").length} 項待辦`, secondaryValue: items.length ? "從卡片直接完成下一步" : "目前沒有待辦", items: items.map((item) => ({ id: item.id, title: item.title, dueAt: item.dueAt, priority: item.priority })) };
+  }
   return invoke<WidgetSummary>("get_widget_summary", { request: { cardId } });
 }
 
@@ -370,53 +471,127 @@ export async function updateWidgetPreferences(cardId: string, listId: string): P
 }
 
 export async function getTodoOverview(): Promise<TodoOverview> {
+  if (isBrowserDemo()) return browserDemoTodoOverview();
   return invoke<TodoOverview>("get_todo_overview");
 }
 
 export async function createTodoList(title: string): Promise<TodoOverview> {
+  if (isBrowserDemo()) {
+    const overview = browserDemoTodoOverview();
+    const now = Math.floor(Date.now() / 1000);
+    overview.lists.push({ id: `demo-list-${now}`, title, position: overview.lists.length, createdAt: now, updatedAt: now, archivedAt: null });
+    browserTodoState = overview;
+    return browserDemoTodoOverview();
+  }
   return invoke<TodoOverview>("create_todo_list", { request: { title } });
 }
 
 export async function updateTodoList(listId: string, title: string, archived: boolean): Promise<TodoOverview> {
+  if (isBrowserDemo()) {
+    const overview = browserDemoTodoOverview();
+    const now = Math.floor(Date.now() / 1000);
+    browserTodoState = { ...overview, lists: overview.lists.map((list) => list.id === listId ? { ...list, title, archivedAt: archived ? now : null, updatedAt: now } : list) };
+    return browserDemoTodoOverview();
+  }
   return invoke<TodoOverview>("update_todo_list", { request: { listId, title, archived } });
 }
 
 export async function createTodoItem(listId: string, item: TodoItemInput): Promise<TodoOverview> {
+  if (isBrowserDemo()) {
+    const overview = browserDemoTodoOverview();
+    const now = Math.floor(Date.now() / 1000);
+    overview.items.push({ id: `demo-task-${now}`, listId, parentId: item.parentId, seriesId: null, title: item.title, notes: item.notes, status: "active", priority: item.priority, dueAt: item.dueAt, position: overview.items.filter((entry) => entry.listId === listId && entry.parentId === item.parentId).length, recurrenceKind: item.recurrenceKind, recurrenceInterval: item.recurrenceInterval, reminderOffsetMinutes: item.reminderOffsetMinutes, reminderState: "none", createdAt: now, updatedAt: now, completedAt: null, deletedAt: null });
+    browserTodoState = overview;
+    return browserDemoTodoOverview();
+  }
   return invoke<TodoOverview>("create_todo_item", { request: { listId, item } });
 }
 
 export async function updateTodoItem(itemId: string, item: TodoItemInput): Promise<TodoOverview> {
+  if (isBrowserDemo()) {
+    const overview = browserDemoTodoOverview();
+    browserTodoState = { ...overview, items: overview.items.map((entry) => entry.id === itemId ? { ...entry, ...item, updatedAt: Math.floor(Date.now() / 1000) } : entry) };
+    return browserDemoTodoOverview();
+  }
   return invoke<TodoOverview>("update_todo_item", { request: { itemId, item } });
 }
 
 export async function setTodoCompleted(itemId: string, completed: boolean): Promise<TodoOverview> {
+  if (isBrowserDemo()) {
+    const overview = browserDemoTodoOverview();
+    const now = Math.floor(Date.now() / 1000);
+    browserTodoState = { ...overview, items: overview.items.map((entry) => entry.id === itemId ? { ...entry, status: completed ? "completed" : "active", completedAt: completed ? now : null, updatedAt: now } : entry) };
+    return browserDemoTodoOverview();
+  }
   return invoke<TodoOverview>("set_todo_completed", { request: { itemId, completed } });
 }
 
 export async function moveTodoItems(itemIds: string[], listId: string, parentId: string | null, targetIndex: number): Promise<TodoOverview> {
+  if (isBrowserDemo()) {
+    const overview = browserDemoTodoOverview();
+    const movingIds = new Set(itemIds);
+    const moving = overview.items
+      .filter((item) => movingIds.has(item.id) && item.parentId === parentId)
+      .sort((left, right) => left.position - right.position);
+    const siblings = overview.items
+      .filter((item) => item.listId === listId && item.parentId === parentId && !movingIds.has(item.id))
+      .sort((left, right) => left.position - right.position);
+    const insertAt = Math.max(0, Math.min(targetIndex, siblings.length));
+    const ordered = [...siblings.slice(0, insertAt), ...moving, ...siblings.slice(insertAt)];
+    const positions = new Map(ordered.map((item, position) => [item.id, position]));
+    browserTodoState = {
+      ...overview,
+      items: overview.items.map((item) => positions.has(item.id)
+        ? { ...item, listId, parentId, position: positions.get(item.id)! }
+        : item),
+    };
+    return browserDemoTodoOverview();
+  }
   return invoke<TodoOverview>("move_todo_items", { request: { itemIds, listId, parentId, targetIndex } });
 }
 
 export async function deleteTodoItems(itemIds: string[]): Promise<TodoOverview> {
+  if (isBrowserDemo()) {
+    const overview = browserDemoTodoOverview();
+    const deleting = new Set(itemIds);
+    const now = Math.floor(Date.now() / 1000);
+    browserTodoState = { ...overview, items: overview.items.map((entry) => deleting.has(entry.id) ? { ...entry, status: "deleted", deletedAt: now, updatedAt: now } : entry) };
+    return browserDemoTodoOverview();
+  }
   return invoke<TodoOverview>("delete_todo_items", { request: { itemIds } });
 }
 
 export async function restoreTodoItems(itemIds: string[]): Promise<TodoOverview> {
+  if (isBrowserDemo()) {
+    const overview = browserDemoTodoOverview();
+    const restoring = new Set(itemIds);
+    browserTodoState = { ...overview, items: overview.items.map((entry) => restoring.has(entry.id) ? { ...entry, status: "active", deletedAt: null, updatedAt: Math.floor(Date.now() / 1000) } : entry) };
+    return browserDemoTodoOverview();
+  }
   return invoke<TodoOverview>("restore_todo_items", { request: { itemIds } });
 }
 
-export async function getFocusState(): Promise<FocusState> { return invoke<FocusState>("get_focus_state"); }
-export async function startFocus(request: { phase?: FocusState["phase"]; linkedTodoId?: string | null; linkedGroupId?: string | null } = {}): Promise<FocusState> { return invoke<FocusState>("start_focus", { request }); }
-export async function pauseFocus(): Promise<FocusState> { return invoke<FocusState>("pause_focus"); }
-export async function resumeFocus(): Promise<FocusState> { return invoke<FocusState>("resume_focus"); }
-export async function stopFocus(outcome: "stopped" | "skipped"): Promise<FocusState> { return invoke<FocusState>("stop_focus", { request: { outcome } }); }
-export async function updateFocusSettings(settings: FocusSettings): Promise<FocusState> { return invoke<FocusState>("update_focus_settings", { settings }); }
-export async function getFocusSessions(from: number, to: number): Promise<FocusSession[]> { return invoke<FocusSession[]>("get_focus_sessions", { request: { from, to } }); }
-export async function getTrackingState(): Promise<TrackingSettings> { return invoke<TrackingSettings>("get_tracking_state"); }
-export async function updateTrackingSettings(settings: TrackingSettings): Promise<TrackingSettings> { return invoke<TrackingSettings>("update_tracking_settings", { settings }); }
-export async function getUsageSummary(from: number, to: number): Promise<UsageSummary> { return invoke<UsageSummary>("get_usage_summary", { request: { from, to } }); }
-export async function updateTrackedApp(appId: string, displayName: string, excluded: boolean): Promise<void> { await invoke("update_tracked_app", { request: { appId, displayName, excluded } }); }
-export async function clearUsageHistory(appId?: string): Promise<void> { await invoke("clear_usage_history", { request: { appId } }); }
+export async function getFocusState(): Promise<FocusState> { return isBrowserDemo() ? browserDemoFocusState() : invoke<FocusState>("get_focus_state"); }
+export async function startFocus(request: { phase?: FocusState["phase"]; linkedTodoId?: string | null; linkedGroupId?: string | null } = {}): Promise<FocusState> {
+  if (isBrowserDemo()) { const current = browserDemoFocusState(); const now = Math.floor(Date.now() / 1000); const phase = request.phase ?? current.phase; const minutes = phase === "focus" ? current.settings.focusMinutes : phase === "shortBreak" ? current.settings.shortBreakMinutes : current.settings.longBreakMinutes; browserFocusState = { ...current, status: "running", phase, startedAt: now, endsAt: now + minutes * 60, remainingSeconds: minutes * 60, linkedTodoId: request.linkedTodoId ?? null, linkedGroupId: request.linkedGroupId ?? null, updatedAt: now }; return browserDemoFocusState(); }
+  return invoke<FocusState>("start_focus", { request });
+}
+export async function pauseFocus(): Promise<FocusState> { if (isBrowserDemo()) { const current = browserDemoFocusState(); const now = Math.floor(Date.now() / 1000); browserFocusState = { ...current, status: "paused", remainingSeconds: current.endsAt ? Math.max(0, current.endsAt - now) : current.remainingSeconds, endsAt: null, updatedAt: now }; return browserDemoFocusState(); } return invoke<FocusState>("pause_focus"); }
+export async function resumeFocus(): Promise<FocusState> { if (isBrowserDemo()) { const current = browserDemoFocusState(); const now = Math.floor(Date.now() / 1000); const seconds = current.remainingSeconds ?? current.settings.focusMinutes * 60; browserFocusState = { ...current, status: "running", endsAt: now + seconds, updatedAt: now }; return browserDemoFocusState(); } return invoke<FocusState>("resume_focus"); }
+export async function stopFocus(outcome: "stopped" | "skipped"): Promise<FocusState> { if (isBrowserDemo()) { const current = browserDemoFocusState(); const phase = outcome === "skipped" ? (current.phase === "focus" ? "shortBreak" : "focus") : current.phase; const minutes = phase === "focus" ? current.settings.focusMinutes : phase === "shortBreak" ? current.settings.shortBreakMinutes : current.settings.longBreakMinutes; browserFocusState = { ...current, status: "idle", phase, startedAt: null, endsAt: null, remainingSeconds: minutes * 60, updatedAt: Math.floor(Date.now() / 1000) }; return browserDemoFocusState(); } return invoke<FocusState>("stop_focus", { request: { outcome } }); }
+export async function updateFocusSettings(settings: FocusSettings): Promise<FocusState> { if (isBrowserDemo()) { browserFocusState = { ...browserDemoFocusState(), settings, remainingSeconds: settings.focusMinutes * 60, updatedAt: Math.floor(Date.now() / 1000) }; return browserDemoFocusState(); } return invoke<FocusState>("update_focus_settings", { settings }); }
+export async function getFocusSessions(from: number, to: number): Promise<FocusSession[]> { if (isBrowserDemo()) { const now = Math.min(Math.floor(Date.now() / 1000), to); return [{ id: "demo-focus-1", phase: "focus", plannedSeconds: 1500, actualSeconds: 1500, outcome: "completed", startedAt: Math.max(from, now - 7200), endedAt: Math.max(from, now - 5700) }, { id: "demo-focus-2", phase: "focus", plannedSeconds: 1500, actualSeconds: 1320, outcome: "stopped", startedAt: Math.max(from, now - 3600), endedAt: Math.max(from, now - 2280) }]; } return invoke<FocusSession[]>("get_focus_sessions", { request: { from, to } }); }
+export async function getTrackingState(): Promise<TrackingSettings> {
+  if (isBrowserDemo()) return structuredClone(browserTrackingSettings);
+  return invoke<TrackingSettings>("get_tracking_state");
+}
+export async function updateTrackingSettings(settings: TrackingSettings): Promise<TrackingSettings> { if (isBrowserDemo()) { browserTrackingSettings = structuredClone(settings); return structuredClone(browserTrackingSettings); } return invoke<TrackingSettings>("update_tracking_settings", { settings }); }
+export async function getUsageSummary(from: number, to: number): Promise<UsageSummary> {
+  if (isBrowserDemo()) return browserDemoUsageSummary(from, to);
+  return invoke<UsageSummary>("get_usage_summary", { request: { from, to } });
+}
+export async function updateTrackedApp(appId: string, displayName: string, excluded: boolean): Promise<void> { if (isBrowserDemo()) return; await invoke("update_tracked_app", { request: { appId, displayName, excluded } }); }
+export async function clearUsageHistory(appId?: string): Promise<void> { if (isBrowserDemo()) return; await invoke("clear_usage_history", { request: { appId } }); }
 
 export async function updateNote(
   cardId: string,
@@ -515,6 +690,10 @@ export async function updatePage(
 
 export async function movePage(pageId: string, direction: -1 | 1): Promise<DashboardState> {
   return invoke<DashboardState>("move_page", { request: { pageId, direction } });
+}
+
+export async function reorderPage(pageId: string, targetIndex: number): Promise<DashboardState> {
+  return invoke<DashboardState>("reorder_page", { request: { pageId, targetIndex } });
 }
 
 export async function deletePage(pageId: string): Promise<DashboardState> {

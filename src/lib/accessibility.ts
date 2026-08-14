@@ -23,8 +23,7 @@ export function useModalFocus<T extends HTMLElement>(open: boolean, onClose: () 
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
     const preferred = dialog?.querySelector<HTMLElement>("[data-initial-focus]");
-    const first = preferred ?? dialog?.querySelector<HTMLElement>(focusableSelector);
-    (first ?? dialog)?.focus();
+    (preferred ?? dialog)?.focus();
 
     function handleKeyDown(event: KeyboardEvent) {
       if (!dialogRef.current) return;

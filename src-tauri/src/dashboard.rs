@@ -627,6 +627,36 @@ impl WorkspaceStore {
         })
     }
 
+    pub fn reorder_page(
+        &self,
+        page_id: &str,
+        target_index: usize,
+    ) -> Result<DashboardState, String> {
+        self.mutate_with_undo(|transaction| {
+            let mut pages = load_page_ids(transaction)?;
+            let Some(current_index) = pages.iter().position(|id| id == page_id) else {
+                return Err("找不到要移動的頁面。".to_string());
+            };
+            if target_index >= pages.len() {
+                return Err("頁面放置位置無效。".to_string());
+            }
+            if current_index == target_index {
+                return Ok(());
+            }
+            let page = pages.remove(current_index);
+            pages.insert(target_index, page);
+            for (position, id) in pages.iter().enumerate() {
+                transaction
+                    .execute(
+                        "UPDATE pages SET position = ?2 WHERE id = ?1",
+                        params![id, position as i64],
+                    )
+                    .map_err(|error| format!("無法拖曳調整頁面順序：{error}"))?;
+            }
+            Ok(())
+        })
+    }
+
     pub fn delete_page(&self, page_id: &str) -> Result<DashboardState, String> {
         self.mutate_with_undo(|transaction| {
             let count: i64 = transaction
@@ -1197,6 +1227,20 @@ mod tests {
         let store = seeded_store();
         assert!(store.delete_page("home").is_err());
         assert_eq!(store.get_dashboard().unwrap().pages.len(), 1);
+    }
+
+    #[test]
+    fn page_can_be_reordered_to_an_exact_drop_position_and_undone() {
+        let store = seeded_store();
+        store.create_page().expect("create second page");
+        let before = store.create_page().expect("create third page");
+        let last_id = before.pages.last().expect("last page").id.clone();
+
+        let reordered = store.reorder_page(&last_id, 0).expect("reorder page");
+        assert_eq!(reordered.pages[0].id, last_id);
+
+        let restored = store.undo_last().expect("undo page reorder");
+        assert_eq!(restored.pages.last().expect("last page").id, last_id);
     }
 
     #[test]

@@ -7,7 +7,7 @@ use std::{
 };
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
-    tray::TrayIconBuilder,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, State, WindowEvent,
 };
 use tauri_plugin_notification::NotificationExt;
@@ -26,13 +26,21 @@ mod usage;
 mod widgets;
 
 use dashboard::{CardMutation, DashboardState};
+use focus::{FocusSession, FocusSettings, FocusState, StartFocusRequest};
 use ingest::{IngestRequest, IngestResult};
 use preview::PreviewCacheInfo;
 use storage::{WorkspaceState, WorkspaceStore};
 use todo::{TodoItemInput, TodoOverview};
-use widgets::{CreateWidgetResult, WidgetSummary};
-use focus::{FocusSession, FocusSettings, FocusState, StartFocusRequest};
 use usage::{TrackingSettings, UsageStore, UsageSummary};
+use widgets::{CreateWidgetResult, WidgetSummary};
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
 
 #[derive(Clone, Deserialize, Serialize)]
 struct RegisteredPath {
@@ -135,6 +143,13 @@ struct MovePageRequest {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ReorderPageRequest {
+    page_id: String,
+    target_index: usize,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct PageRequest {
     page_id: String,
 }
@@ -218,15 +233,24 @@ struct StopFocusRequest {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct UsageSummaryRequest { from: i64, to: i64 }
+struct UsageSummaryRequest {
+    from: i64,
+    to: i64,
+}
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct UpdateTrackedAppRequest { app_id: String, display_name: String, excluded: bool }
+struct UpdateTrackedAppRequest {
+    app_id: String,
+    display_name: String,
+    excluded: bool,
+}
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ClearUsageRequest { app_id: Option<String> }
+struct ClearUsageRequest {
+    app_id: Option<String>,
+}
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -812,6 +836,25 @@ async fn move_page(
 }
 
 #[tauri::command]
+async fn reorder_page(
+    request: ReorderPageRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<DashboardState, CommandError> {
+    let store = Arc::clone(&runtime.store);
+    tauri::async_runtime::spawn_blocking(move || {
+        store.reorder_page(&request.page_id, request.target_index)
+    })
+    .await
+    .map_err(|error| {
+        CommandError::new(
+            "backgroundFailed",
+            format!("頁面拖曳排序背景工作失敗：{error}"),
+        )
+    })?
+    .map_err(CommandError::storage)
+}
+
+#[tauri::command]
 async fn delete_page(
     request: PageRequest,
     runtime: State<'_, PersonalPlaceRuntime>,
@@ -851,11 +894,32 @@ fn get_widget_summary(
         .map_err(CommandError::storage)?;
     if summary.widget_kind == "usage" {
         let now = chrono::Local::now();
-        let start = now.date_naive().and_hms_opt(0, 0, 0).and_then(|value| value.and_local_timezone(chrono::Local).single()).map(|value| value.timestamp()).unwrap_or_else(|| now.timestamp());
-        let usage = runtime.usage_store.summary(start, now.timestamp()).map_err(CommandError::storage)?;
-        let tracking = runtime.usage_store.settings().map_err(CommandError::storage)?;
+        let start = now
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
+            .and_then(|value| value.and_local_timezone(chrono::Local).single())
+            .map(|value| value.timestamp())
+            .unwrap_or_else(|| now.timestamp());
+        let usage = runtime
+            .usage_store
+            .summary(start, now.timestamp())
+            .map_err(CommandError::storage)?;
+        let tracking = runtime
+            .usage_store
+            .settings()
+            .map_err(CommandError::storage)?;
         summary.primary_value = format!("{} 小時", usage.total_seconds / 3600);
-        summary.secondary_value = if tracking.enabled { usage.apps.iter().take(3).map(|app| app.display_name.as_str()).collect::<Vec<_>>().join(" · ") } else { "追蹤預設關閉".to_string() };
+        summary.secondary_value = if tracking.enabled {
+            usage
+                .apps
+                .iter()
+                .take(3)
+                .map(|app| app.display_name.as_str())
+                .collect::<Vec<_>>()
+                .join(" · ")
+        } else {
+            "追蹤預設關閉".to_string()
+        };
     }
     Ok(summary)
 }
@@ -977,49 +1041,121 @@ fn restore_todo_items(
 
 #[tauri::command]
 fn get_focus_state(runtime: State<'_, PersonalPlaceRuntime>) -> Result<FocusState, CommandError> {
-    runtime.store.get_focus_state(chrono::Local::now().timestamp()).map_err(CommandError::storage)
+    runtime
+        .store
+        .get_focus_state(chrono::Local::now().timestamp())
+        .map_err(CommandError::storage)
 }
 
 #[tauri::command]
-fn start_focus(request: StartFocusRequest, runtime: State<'_, PersonalPlaceRuntime>) -> Result<FocusState, CommandError> {
-    runtime.store.start_focus(&request, chrono::Local::now().timestamp()).map_err(CommandError::storage)
+fn start_focus(
+    request: StartFocusRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<FocusState, CommandError> {
+    runtime
+        .store
+        .start_focus(&request, chrono::Local::now().timestamp())
+        .map_err(CommandError::storage)
 }
 
 #[tauri::command]
 fn pause_focus(runtime: State<'_, PersonalPlaceRuntime>) -> Result<FocusState, CommandError> {
-    runtime.store.pause_focus(chrono::Local::now().timestamp()).map_err(CommandError::storage)
+    runtime
+        .store
+        .pause_focus(chrono::Local::now().timestamp())
+        .map_err(CommandError::storage)
 }
 
 #[tauri::command]
 fn resume_focus(runtime: State<'_, PersonalPlaceRuntime>) -> Result<FocusState, CommandError> {
-    runtime.store.resume_focus(chrono::Local::now().timestamp()).map_err(CommandError::storage)
+    runtime
+        .store
+        .resume_focus(chrono::Local::now().timestamp())
+        .map_err(CommandError::storage)
 }
 
 #[tauri::command]
-fn stop_focus(request: StopFocusRequest, runtime: State<'_, PersonalPlaceRuntime>) -> Result<FocusState, CommandError> {
-    runtime.store.stop_focus(&request.outcome, chrono::Local::now().timestamp()).map_err(CommandError::storage)
+fn stop_focus(
+    request: StopFocusRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<FocusState, CommandError> {
+    runtime
+        .store
+        .stop_focus(&request.outcome, chrono::Local::now().timestamp())
+        .map_err(CommandError::storage)
 }
 
 #[tauri::command]
-fn update_focus_settings(settings: FocusSettings, runtime: State<'_, PersonalPlaceRuntime>) -> Result<FocusState, CommandError> {
-    runtime.store.update_focus_settings(&settings).map_err(CommandError::storage)
+fn update_focus_settings(
+    settings: FocusSettings,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<FocusState, CommandError> {
+    runtime
+        .store
+        .update_focus_settings(&settings)
+        .map_err(CommandError::storage)
 }
 
 #[tauri::command]
-fn get_focus_sessions(request: UsageSummaryRequest, runtime: State<'_, PersonalPlaceRuntime>) -> Result<Vec<FocusSession>, CommandError> {
-    runtime.store.get_focus_sessions(request.from, request.to).map_err(CommandError::storage)
+fn get_focus_sessions(
+    request: UsageSummaryRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<Vec<FocusSession>, CommandError> {
+    runtime
+        .store
+        .get_focus_sessions(request.from, request.to)
+        .map_err(CommandError::storage)
 }
 
 #[tauri::command]
-fn get_tracking_state(runtime: State<'_, PersonalPlaceRuntime>) -> Result<TrackingSettings, CommandError> { runtime.usage_store.settings().map_err(CommandError::storage) }
+fn get_tracking_state(
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<TrackingSettings, CommandError> {
+    runtime
+        .usage_store
+        .settings()
+        .map_err(CommandError::storage)
+}
 #[tauri::command]
-fn update_tracking_settings(settings: TrackingSettings, runtime: State<'_, PersonalPlaceRuntime>) -> Result<TrackingSettings, CommandError> { runtime.usage_store.update_settings(&settings).map_err(CommandError::storage) }
+fn update_tracking_settings(
+    settings: TrackingSettings,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<TrackingSettings, CommandError> {
+    runtime
+        .usage_store
+        .update_settings(&settings)
+        .map_err(CommandError::storage)
+}
 #[tauri::command]
-fn get_usage_summary(request: UsageSummaryRequest, runtime: State<'_, PersonalPlaceRuntime>) -> Result<UsageSummary, CommandError> { runtime.usage_store.summary(request.from, request.to).map_err(CommandError::storage) }
+fn get_usage_summary(
+    request: UsageSummaryRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<UsageSummary, CommandError> {
+    runtime
+        .usage_store
+        .summary(request.from, request.to)
+        .map_err(CommandError::storage)
+}
 #[tauri::command]
-fn update_tracked_app(request: UpdateTrackedAppRequest, runtime: State<'_, PersonalPlaceRuntime>) -> Result<(), CommandError> { runtime.usage_store.update_app(&request.app_id, &request.display_name, request.excluded).map_err(CommandError::storage) }
+fn update_tracked_app(
+    request: UpdateTrackedAppRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<(), CommandError> {
+    runtime
+        .usage_store
+        .update_app(&request.app_id, &request.display_name, request.excluded)
+        .map_err(CommandError::storage)
+}
 #[tauri::command]
-fn clear_usage_history(request: ClearUsageRequest, runtime: State<'_, PersonalPlaceRuntime>) -> Result<(), CommandError> { runtime.usage_store.clear(request.app_id.as_deref()).map_err(CommandError::storage) }
+fn clear_usage_history(
+    request: ClearUsageRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<(), CommandError> {
+    runtime
+        .usage_store
+        .clear(request.app_id.as_deref())
+        .map_err(CommandError::storage)
+}
 
 fn validate_update_request(request: &UpdateCardRequest) -> Result<(), String> {
     if request.card_id.trim().is_empty() {
@@ -1219,6 +1355,10 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
+            } else if matches!(event, WindowEvent::Resized(_))
+                && window.is_minimized().unwrap_or(false)
+            {
+                let _ = window.hide();
             }
         })
         .register_asynchronous_uri_scheme_protocol("preview", |context, request, responder| {
@@ -1287,13 +1427,21 @@ pub fn run() {
                 loop {
                     let _ = foreground_rx.recv_timeout(std::time::Duration::from_secs(30));
                     let now = chrono::Local::now().timestamp();
-                    let Ok(settings) = tracking_store.settings() else { continue; };
+                    let Ok(settings) = tracking_store.settings() else {
+                        continue;
+                    };
                     let idle = usage::idle_seconds().unwrap_or(0);
-                    let observed = if settings.enabled && (settings.idle_seconds == 0 || idle < settings.idle_seconds) {
+                    let observed = if settings.enabled
+                        && (settings.idle_seconds == 0 || idle < settings.idle_seconds)
+                    {
                         usage::foreground_app()
-                    } else { None };
+                    } else {
+                        None
+                    };
                     match (active.take(), observed) {
-                        (Some((id, name, started)), Some((next_id, _next_name))) if id == next_id => {
+                        (Some((id, name, started)), Some((next_id, _next_name)))
+                            if id == next_id =>
+                        {
                             active = Some((id, name, started));
                         }
                         (Some((id, name, started)), next) => {
@@ -1306,25 +1454,41 @@ pub fn run() {
                 }
             });
             let open_item = MenuItemBuilder::with_id("open", "開啟 Personal Place").build(app)?;
-            let timer_item = MenuItemBuilder::with_id("timer", "Focus Timer：尚未開始").enabled(false).build(app)?;
-            let tracking_item = MenuItemBuilder::with_id("tracking", "使用追蹤：尚未啟用").enabled(false).build(app)?;
+            let timer_item = MenuItemBuilder::with_id("timer", "Focus Timer：尚未開始")
+                .enabled(false)
+                .build(app)?;
+            let tracking_item = MenuItemBuilder::with_id("tracking", "使用追蹤：尚未啟用")
+                .enabled(false)
+                .build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "完全結束").build(app)?;
             let menu = MenuBuilder::new(app)
                 .items(&[&open_item, &timer_item, &tracking_item, &quit_item])
                 .build()?;
-            TrayIconBuilder::with_id("personal-place-tray")
+            let mut tray = TrayIconBuilder::with_id("personal-place-tray")
+                .tooltip("Personal Place")
+                .show_menu_on_left_click(false)
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "open" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
+                    "open" => show_main_window(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })
-                .build(app)?;
+                .on_tray_icon_event(|tray, event| {
+                    if matches!(
+                        event,
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        }
+                    ) {
+                        show_main_window(tray.app_handle());
+                    }
+                });
+            if let Some(icon) = app.default_window_icon().cloned() {
+                tray = tray.icon(icon);
+            }
+            tray.build(app)?;
             app.manage(PersonalPlaceRuntime {
                 store,
                 database_error,
@@ -1367,6 +1531,7 @@ pub fn run() {
             create_page,
             update_page,
             move_page,
+            reorder_page,
             delete_page,
             create_widget,
             get_widget_summary,

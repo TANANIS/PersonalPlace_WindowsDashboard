@@ -191,22 +191,50 @@ fn consistent_manifest(store: &WorkspaceStore) -> Result<BackupManifest, String>
             .prepare("SELECT id, title, position, created_at, updated_at, archived_at FROM todo_lists ORDER BY position, id")
             .map_err(|error| format!("unable to prepare todo list export: {error}"))?;
         let rows = statement
-            .query_map([], |row| Ok(TodoList {
-                id: row.get(0)?, title: row.get(1)?, position: row.get(2)?, created_at: row.get(3)?, updated_at: row.get(4)?, archived_at: row.get(5)?,
-            }))
+            .query_map([], |row| {
+                Ok(TodoList {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    position: row.get(2)?,
+                    created_at: row.get(3)?,
+                    updated_at: row.get(4)?,
+                    archived_at: row.get(5)?,
+                })
+            })
             .map_err(|error| format!("unable to read todo list export: {error}"))?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|error| format!("unable to collect todo list export: {error}"))?
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("unable to collect todo list export: {error}"))?
     };
     let todo_items = {
         let mut statement = transaction
             .prepare("SELECT id, list_id, parent_id, series_id, title, notes, status, priority, due_at, position, recurrence_kind, recurrence_interval, reminder_offset_minutes, reminder_state, created_at, updated_at, completed_at, deleted_at FROM todo_items ORDER BY list_id, parent_id, position, id")
             .map_err(|error| format!("unable to prepare todo item export: {error}"))?;
         let rows = statement
-            .query_map([], |row| Ok(TodoItem {
-                id: row.get(0)?, list_id: row.get(1)?, parent_id: row.get(2)?, series_id: row.get(3)?, title: row.get(4)?, notes: row.get(5)?, status: row.get(6)?, priority: row.get(7)?, due_at: row.get(8)?, position: row.get(9)?, recurrence_kind: row.get(10)?, recurrence_interval: row.get(11)?, reminder_offset_minutes: row.get(12)?, reminder_state: row.get(13)?, created_at: row.get(14)?, updated_at: row.get(15)?, completed_at: row.get(16)?, deleted_at: row.get(17)?,
-            }))
+            .query_map([], |row| {
+                Ok(TodoItem {
+                    id: row.get(0)?,
+                    list_id: row.get(1)?,
+                    parent_id: row.get(2)?,
+                    series_id: row.get(3)?,
+                    title: row.get(4)?,
+                    notes: row.get(5)?,
+                    status: row.get(6)?,
+                    priority: row.get(7)?,
+                    due_at: row.get(8)?,
+                    position: row.get(9)?,
+                    recurrence_kind: row.get(10)?,
+                    recurrence_interval: row.get(11)?,
+                    reminder_offset_minutes: row.get(12)?,
+                    reminder_state: row.get(13)?,
+                    created_at: row.get(14)?,
+                    updated_at: row.get(15)?,
+                    completed_at: row.get(16)?,
+                    deleted_at: row.get(17)?,
+                })
+            })
             .map_err(|error| format!("unable to read todo item export: {error}"))?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|error| format!("unable to collect todo item export: {error}"))?
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("unable to collect todo item export: {error}"))?
     };
     transaction
         .commit()
@@ -503,17 +531,31 @@ mod tests {
         let source = initialized_store();
         let (overview, list_id) = source.create_todo_list("學習").expect("create list");
         assert!(overview.lists.iter().any(|list| list.id == list_id));
-        source.create_todo_item(&list_id, &crate::todo::TodoItemInput {
-            title: "完成練習".to_string(), notes: "保持本機資料".to_string(), priority: "high".to_string(), due_at: None,
-            recurrence_kind: "none".to_string(), recurrence_interval: 1, reminder_offset_minutes: None, parent_id: None,
-        }).expect("create todo");
+        source
+            .create_todo_item(
+                &list_id,
+                &crate::todo::TodoItemInput {
+                    title: "完成練習".to_string(),
+                    notes: "保持本機資料".to_string(),
+                    priority: "high".to_string(),
+                    due_at: None,
+                    recurrence_kind: "none".to_string(),
+                    recurrence_interval: 1,
+                    reminder_offset_minutes: None,
+                    parent_id: None,
+                },
+            )
+            .expect("create todo");
         let root = temporary_root("todo-round-trip");
         fs::create_dir_all(&root).expect("create root");
         let path = root.join("todo.personal-place");
         export_backup(&source, &path).expect("export");
         let destination = initialized_store();
         restore_backup(&destination, &path, &root.join("automatic")).expect("restore");
-        assert_eq!(source.get_todo_overview().unwrap(), destination.get_todo_overview().unwrap());
+        assert_eq!(
+            source.get_todo_overview().unwrap(),
+            destination.get_todo_overview().unwrap()
+        );
         let _ = fs::remove_dir_all(root);
     }
 

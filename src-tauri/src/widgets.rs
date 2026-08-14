@@ -235,7 +235,10 @@ impl WorkspaceStore {
             }
             "focus" => {
                 let focus = self.get_focus_state(Utc::now().timestamp())?;
-                let seconds = focus.remaining_seconds.unwrap_or(focus.settings.focus_minutes * 60).max(0);
+                let seconds = focus
+                    .remaining_seconds
+                    .unwrap_or(focus.settings.focus_minutes * 60)
+                    .max(0);
                 Ok(WidgetSummary {
                     card_id: card_id.to_string(),
                     widget_kind: card.1,
@@ -248,7 +251,7 @@ impl WorkspaceStore {
                     },
                     items: Vec::new(),
                 })
-            },
+            }
             "focus_placeholder" => Ok(WidgetSummary {
                 card_id: card_id.to_string(),
                 widget_kind: card.1,
@@ -294,7 +297,9 @@ mod tests {
             .unwrap();
         assert_eq!(widget.widget_kind.as_deref(), Some("todo"));
         let list_id = widget.widget_resource_id.clone().unwrap();
-        store.delete_cards(std::slice::from_ref(&widget.id)).unwrap();
+        store
+            .delete_cards(std::slice::from_ref(&widget.id))
+            .unwrap();
         assert_eq!(store.get_todo_overview().unwrap().lists[0].id, list_id);
         let restored = store.undo_last().unwrap();
         assert!(restored.cards.iter().any(|card| card.id == widget.id));

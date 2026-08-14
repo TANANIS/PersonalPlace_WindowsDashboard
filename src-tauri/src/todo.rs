@@ -204,7 +204,12 @@ impl WorkspaceStore {
                 .optional()
                 .map_err(|error| format!("無法讀取待辦事項：{error}"))?
                 .ok_or_else(|| "找不到要更新的待辦事項。".to_string())?;
-            ensure_parent(transaction, &list_id, input.parent_id.as_deref(), Some(item_id))?;
+            ensure_parent(
+                transaction,
+                &list_id,
+                input.parent_id.as_deref(),
+                Some(item_id),
+            )?;
             let reminder_state = reminder_state(input.due_at, input.reminder_offset_minutes);
             transaction
                 .execute(
@@ -550,8 +555,15 @@ fn validate_item_input(input: &TodoItemInput) -> Result<(), String> {
     }
     if !matches!(
         input.recurrence_kind.as_str(),
-        "none" | "daily" | "weekdays" | "weekly" | "monthly" | "yearly"
-            | "custom_days" | "custom_weeks" | "custom_months"
+        "none"
+            | "daily"
+            | "weekdays"
+            | "weekly"
+            | "monthly"
+            | "yearly"
+            | "custom_days"
+            | "custom_weeks"
+            | "custom_months"
     ) {
         return Err("待辦重複規則無效。".to_string());
     }
@@ -618,7 +630,9 @@ fn ensure_parent(
         .optional()
         .map_err(|error| format!("無法確認父待辦：{error}"))?;
     match parent {
-        Some((parent_list, None, status)) if parent_list == list_id && status != "deleted" => Ok(()),
+        Some((parent_list, None, status)) if parent_list == list_id && status != "deleted" => {
+            Ok(())
+        }
         _ => Err("子任務只能放在同一清單的頂層待辦下。".to_string()),
     }
 }
@@ -677,12 +691,7 @@ fn reminder_state(due_at: Option<i64>, offset: Option<i64>) -> &'static str {
     }
 }
 
-fn next_recurrence(
-    due_at: i64,
-    kind: &str,
-    interval: i64,
-    now: i64,
-) -> Result<i64, String> {
+fn next_recurrence(due_at: i64, kind: &str, interval: i64, now: i64) -> Result<i64, String> {
     let mut current = Local
         .timestamp_opt(due_at, 0)
         .earliest()
@@ -739,8 +748,8 @@ fn days_in_month(year: i32, month: u32) -> u32 {
     } else {
         (year, month + 1)
     };
-    let first_next = chrono::NaiveDate::from_ymd_opt(next_year, next_month, 1)
-        .expect("valid next month");
+    let first_next =
+        chrono::NaiveDate::from_ymd_opt(next_year, next_month, 1).expect("valid next month");
     (first_next - Duration::days(1)).day()
 }
 
@@ -814,7 +823,9 @@ mod tests {
             parent_id: Some(child.id.clone()),
         };
         assert!(store.create_todo_item(&list_id, &invalid).is_err());
-        store.delete_todo_items(std::slice::from_ref(&parent.id)).unwrap();
+        store
+            .delete_todo_items(std::slice::from_ref(&parent.id))
+            .unwrap();
         assert!(store.get_todo_overview().unwrap().items.is_empty());
         store.restore_todo_items(&[parent.id]).unwrap();
         assert_eq!(store.get_todo_overview().unwrap().items.len(), 2);
@@ -842,7 +853,11 @@ mod tests {
         let item = store.get_todo_overview().unwrap().items[0].clone();
         let result = store.set_todo_completed(&item.id, true).unwrap();
         assert_eq!(result.items.len(), 2);
-        let next = result.items.iter().find(|candidate| candidate.status == "active").unwrap();
+        let next = result
+            .items
+            .iter()
+            .find(|candidate| candidate.status == "active")
+            .unwrap();
         assert!(next.due_at.unwrap() > Utc::now().timestamp());
     }
 }

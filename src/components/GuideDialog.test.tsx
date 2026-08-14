@@ -34,9 +34,12 @@ describe("GuideDialog", () => {
 
     render(<GuideDialog onClose={onClose} />);
 
+    const dialog = screen.getByRole("dialog");
     const close = screen.getByRole("button", { name: "關閉新手教學" });
-    expect(close).toHaveFocus();
+    expect(dialog).toHaveFocus();
 
+    await user.tab();
+    expect(close).toHaveFocus();
     await user.tab();
     const next = screen.getByRole("button", { name: "下一步" });
     expect(next).toHaveFocus();

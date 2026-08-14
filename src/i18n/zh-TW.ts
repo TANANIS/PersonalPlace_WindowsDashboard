@@ -7,6 +7,7 @@ export const zhTW = {
   card: {
     placeSummary: (count: number) => `${count} 個項目的地方`,
     keyboardReorderHint: "Alt 加方向鍵可調整順序",
+    dragHint: "拖曳卡片調整位置",
   },
   sidebar: {
     edit: "整理",
@@ -14,6 +15,17 @@ export const zhTW = {
     editTitle: "進入整理模式",
     finishEditingTitle: "完成整理",
     settings: "設定",
+  },
+  appearance: {
+    title: "介面主題",
+    description: "一次更換背景、側欄、卡片、表單與操作色，選擇最適合你的整體氛圍。",
+    options: {
+      cyan: "深海藍",
+      violet: "暮光紫",
+      mint: "森霧綠",
+      amber: "暖暮棕",
+      rose: "莓夜紅",
+    },
   },
   notes: {
     empty: "空白筆記",
@@ -79,6 +91,6 @@ export const zhTW = {
     ],
   },
   release: {
-    versionStatus: (version: string) => `版本 ${version} · 未公開測試版`,
+    versionStatus: (version: string) => `版本 ${version} · 本機優先`,
   },
 } as const;

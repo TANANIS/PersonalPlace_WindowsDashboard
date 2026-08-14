@@ -44,7 +44,7 @@ export function WidgetCardPreview({ card, summary, focusState, usageSummary, sco
   void now;
 
   if (card.widgetKind === "todo") {
-    return <div className="widget-preview widget-preview-todo" onClick={(event) => event.stopPropagation()}>
+    return <div className="widget-preview widget-preview-todo">
       <div className="widget-preview-heading"><strong>{summary?.primaryValue ?? "載入中…"}</strong><button type="button" onClick={onOpen}>管理</button></div>
       {summary?.items.length ? <ul className="widget-todo-list">{summary.items.map((item) => <li key={item.id}>
         <label><input type="checkbox" disabled={busy} aria-label={`完成 ${item.title}`} onChange={(event) => onToggleTodo(item.id, event.target.checked)} /><span>{item.title}</span></label>
@@ -55,7 +55,7 @@ export function WidgetCardPreview({ card, summary, focusState, usageSummary, sco
   if (card.widgetKind === "focus") {
     const state = focusState;
     const status = state?.status ?? "idle";
-    return <div className="widget-preview widget-preview-focus" onClick={(event) => event.stopPropagation()}>
+    return <div className="widget-preview widget-preview-focus">
       <div className="widget-focus-clock"><small>{state ? phaseLabel[state.phase] : "專注"}</small><strong>{clock(remaining(state))}</strong><span>{status === "running" ? "進行中" : status === "paused" ? "已暫停" : "準備開始"}</span></div>
       <div className="widget-focus-actions">
         {status === "idle" ? <button type="button" className="compact-primary" disabled={busy} onClick={() => onFocusAction("start")}>開始</button> : <>
@@ -68,7 +68,7 @@ export function WidgetCardPreview({ card, summary, focusState, usageSummary, sco
     </div>;
   }
 
-  return <div className="widget-preview widget-preview-usage" onClick={(event) => event.stopPropagation()}>
+  return <div className="widget-preview widget-preview-usage">
     <div className="widget-preview-heading"><strong>{usageSummary ? `${Math.floor((usageSummary.totalSeconds ?? 0) / 3600)} 小時 ${Math.floor(((usageSummary.totalSeconds ?? 0) % 3600) / 60)} 分` : "載入中…"}</strong><button type="button" onClick={onOpen}>詳細</button></div>
     {usageApps.length ? <div className="widget-usage-bars">{usageApps.map((app) => <div key={app.appId}><span><b>{app.displayName}</b><small>{Math.floor(app.seconds / 60)} 分</small></span><i><em style={{ width: `${Math.max(8, Math.round((app.seconds / Math.max(totalUsage, 1)) * 100))}%` }} /></i></div>)}</div> : <p className="widget-empty">啟用追蹤後，這裡會顯示使用中的 App。</p>}
   </div>;
