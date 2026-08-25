@@ -1,6 +1,6 @@
 [package]
 name = "personal-workspace"
-version = "1.4.0"
+version = "1.4.1"
 description = "Local-first Windows personal dashboard"
 authors = ["JSrad"]
 edition = "2021"
@@ -26,6 +26,7 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"
 open = "5"
 percent-encoding = "2"
 rusqlite = { version = "0.40.2", default-features = false, features = ["backup", "bundled"] }

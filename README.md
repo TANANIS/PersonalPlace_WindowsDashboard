@@ -4,11 +4,11 @@ Personal Place 是 Windows 上、本機優先的個人數位首頁。你可以�
 
 ## 下載
 
-目前版本：**1.4.0**
+目前版本：**1.4.1**
 
-- [安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.4.0/releases/Personal-Place-1.4.0/Personal-Place-1.4.0-setup.exe)
-- [免安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.4.0/releases/Personal-Place-1.4.0/Personal-Place-1.4.0-portable.exe)
-- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.4.0/releases/Personal-Place-1.4.0/SHA256SUMS.txt)
+- [安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.4.1/releases/Personal-Place-1.4.1/Personal-Place-1.4.1-setup.exe)
+- [免安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.4.1/releases/Personal-Place-1.4.1/Personal-Place-1.4.1-portable.exe)
+- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.4.1/releases/Personal-Place-1.4.1/SHA256SUMS.txt)
 
 目前發行檔尚未使用程式碼簽章，Windows 可能顯示 SmartScreen 提醒。
 
