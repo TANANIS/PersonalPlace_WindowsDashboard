@@ -10,7 +10,34 @@ Personal Place 是 Windows 上、本機優先的個人數位首頁。你可以�
 - [免安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.5.0/releases/Personal-Place-1.5.0/Personal-Place-1.5.0-portable.exe)
 - [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.5.0/releases/Personal-Place-1.5.0/SHA256SUMS.txt)
 
-目前發行檔尚未使用程式碼簽章，Windows 可能顯示 SmartScreen 提醒。
+目前發行檔包含 `JSrad Personal Place` 開發者自簽章，但不是由公開信任的憑證授權單位簽發；Windows 仍可能顯示 SmartScreen 或無法驗證發行者的提醒。
+
+## 1.5.0：ActivityWatch 活動工作區
+
+左側欄新增系統級「活動」入口，將這台電腦上的 ActivityWatch 紀錄整理成 Personal Place 原生工作區。它獨立於使用者建立的 Page，不會出現在 Page 管理、排序或搜尋結果中。
+
+### ActivityWatch 是什麼？
+
+[ActivityWatch](https://activitywatch.net/) 是免費、開源、跨平台且以隱私為優先的自動時間追蹤工具。它在你的電腦上記錄目前使用的 App、有效／離開時間；安裝官方瀏覽器擴充功能後，也能記錄網站活動。資料由 ActivityWatch 保存在本機，不需要建立帳號或上傳到雲端。
+
+Personal Place 不會取代 ActivityWatch，也不負責在背景監控使用行為；「活動」工作區只是將 ActivityWatch 已經收集的資料，重新整理成符合 Personal Place 設計語言的摘要畫面：
+
+- 可切換今天、近 7 天與近 30 天。
+- 顯示有效使用總時間、App 使用排行與 Website domain 使用排行。
+- 最近活動以簡潔時間軸呈現，不加入生產力評分或 AI 分析。
+- ActivityWatch 未啟動時會顯示 unavailable 狀態，不影響 Dashboard、Place 與其他工具。
+
+### 推薦安裝方式（Windows）
+
+1. 前往 [ActivityWatch 官方下載頁](https://activitywatch.net/downloads/)。
+2. 在最新穩定版的 **Windows** 區域選擇 **Installer（recommended）**；一般使用不建議選擇 pre-release 或 nightly build。
+3. 安裝後啟動 ActivityWatch，確認 Windows 系統匣出現 ActivityWatch 圖示。
+4. 開啟 [ActivityWatch 本機介面](http://127.0.0.1:5600/)；能看到畫面後，再回到 Personal Place 的「活動」頁重新整理。
+5. 若要顯示 Website domain 排行，請另外從官方下載頁安裝適合瀏覽器的 ActivityWatch Web Watcher 擴充功能。
+
+更完整的設定方式可參考 [ActivityWatch Getting Started](https://docs.activitywatch.net/en/latest/getting-started.html)。Windows Installer 會自動設定登入時啟動；若你不希望持續記錄，也可以從 ActivityWatch 本身暫停或調整追蹤。
+
+Personal Place 只透過 Tauri 後端連線固定的 `http://127.0.0.1:5600`，不接受遠端伺服器、不使用外部 API，也不把 ActivityWatch 原始事件複製到自己的資料庫。既有的選用 Usage tracker 與 Usage widget 仍保留為獨立功能。
 
 ## 主要功能
 
