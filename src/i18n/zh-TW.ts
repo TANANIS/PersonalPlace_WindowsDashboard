@@ -14,6 +14,7 @@ export const zhTW = {
     finishEditing: "完成",
     editTitle: "進入整理模式",
     finishEditingTitle: "完成整理",
+    activity: "活動",
     settings: "設定",
   },
   appearance: {

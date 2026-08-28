@@ -4,11 +4,11 @@ Personal Place 是 Windows 上、本機優先的個人數位首頁。你可以�
 
 ## 下載
 
-目前版本：**1.4.1**
+目前版本：**1.5.0**
 
-- [安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.4.1/releases/Personal-Place-1.4.1/Personal-Place-1.4.1-setup.exe)
-- [免安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.4.1/releases/Personal-Place-1.4.1/Personal-Place-1.4.1-portable.exe)
-- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.4.1/releases/Personal-Place-1.4.1/SHA256SUMS.txt)
+- [安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.5.0/releases/Personal-Place-1.5.0/Personal-Place-1.5.0-setup.exe)
+- [免安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.5.0/releases/Personal-Place-1.5.0/Personal-Place-1.5.0-portable.exe)
+- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.5.0/releases/Personal-Place-1.5.0/SHA256SUMS.txt)
 
 目前發行檔尚未使用程式碼簽章，Windows 可能顯示 SmartScreen 提醒。
 
@@ -19,6 +19,7 @@ Personal Place 是 Windows 上、本機優先的個人數位首頁。你可以�
 - Place 可記錄最近進度，並依序開啟選定項目。
 - 純文字筆記採閱讀優先的內頁，需要時再進入編輯。
 - Todo、Focus Timer 與使用時間提供卡片摘要與完整工作區。
+- 系統級「活動」工作區可選擇性讀取本機 ActivityWatch，查看有效使用時間、App／網站排行與最近活動。
 - `Ctrl + K` 可跨 Page、Place、筆記與卡片搜尋。
 - 支援整理模式、多選、拖曳排序、鍵盤移動與復原。
 - Dashboard 會依視窗寬度增加欄數，避免高解析度螢幕把卡片與圖示過度放大。
@@ -30,6 +31,7 @@ Personal Place 是 Windows 上、本機優先的個人數位首頁。你可以�
 - 不需要帳號，核心功能可離線使用。
 - Dashboard 與工具資料保存在使用者的 Windows 本機資料目錄。
 - App 使用時間追蹤預設關閉；啟用後只記錄 App 身分與時間，不讀取視窗標題、網址、文件名稱、鍵鼠內容或畫面。
+- 「活動」只連線固定的本機 ActivityWatch 服務並即時彙整，不把 ActivityWatch 原始事件複製到 Personal Place。
 - 匯出備份可能包含本機絕對路徑，請妥善保存。
 
 詳細說明：

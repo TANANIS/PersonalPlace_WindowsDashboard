@@ -12,6 +12,7 @@ use tauri::{
 };
 use tauri_plugin_notification::NotificationExt;
 
+mod activitywatch;
 mod backup;
 mod dashboard;
 mod focus;
@@ -25,6 +26,7 @@ mod todo;
 mod usage;
 mod widgets;
 
+use activitywatch::{ActivityPeriod, ActivitySummary};
 use dashboard::{CardMutation, DashboardState};
 use focus::{FocusSession, FocusSettings, FocusState, StartFocusRequest};
 use ingest::{IngestRequest, IngestResult};
@@ -1342,6 +1344,13 @@ fn launch_card(card_id: String, runtime: State<'_, PersonalPlaceRuntime>) -> Res
     launcher::launch_card_target(&target)
 }
 
+#[tauri::command]
+async fn get_activity_summary(period: ActivityPeriod) -> ActivitySummary {
+    tauri::async_runtime::spawn_blocking(move || activitywatch::get_activity_summary(period))
+        .await
+        .unwrap_or_else(|_| activitywatch::get_activity_summary(period))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1560,6 +1569,7 @@ pub fn run() {
             get_usage_summary,
             update_tracked_app,
             clear_usage_history,
+            get_activity_summary,
             launch_card,
             get_item_preview,
             get_preview_cache_info,

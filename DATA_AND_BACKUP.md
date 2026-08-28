@@ -16,6 +16,8 @@
 
 SQLite 讀取採一致性 transaction，因此已提交但仍位於 WAL 的最新資料也會包含在匯出內容。
 
+系統級「活動」工作區即時讀取本機 ActivityWatch；Personal Place 不另建活動歷史資料庫、不複製原始事件，因此這些資料不包含在備份中。既有 Usage tracker 的資料與設定維持原本行為。
+
 ## 還原
 
 目前只提供「取代目前資料」，不提供 Merge。還原前會：
@@ -30,4 +32,3 @@ SQLite 讀取採一致性 transaction，因此已提交但仍位於 WAL 的最�
 ## Recovery
 
 若資料庫無法開啟，Personal Place 不會用空白資料覆寫它。Recovery 畫面可選擇備份；程式會先在旁邊建立並驗證完整新資料庫，再保存原 DB／WAL／SHM、替換並重新啟動。
-

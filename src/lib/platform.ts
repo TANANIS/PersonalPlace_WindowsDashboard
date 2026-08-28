@@ -184,6 +184,31 @@ export interface UsageApp { appId: string; displayName: string; seconds: number;
 export interface UsageSegment { appId: string; displayName: string; startedAt: number; endedAt: number; }
 export interface UsageSummary { totalSeconds: number; apps: UsageApp[]; segments: UsageSegment[]; }
 
+export type ActivityPeriod = "today" | "sevenDays" | "thirtyDays";
+export interface ActivityConnectionStatus {
+  status: "connected" | "unavailable";
+  message: string;
+  serverVersion: string | null;
+}
+export interface ActivityRankItem { label: string; seconds: number; }
+export interface ActivityTimelineItem {
+  itemType: "app" | "website";
+  label: string;
+  detail: string | null;
+  startedAt: string;
+  durationSeconds: number;
+}
+export interface ActivitySummary {
+  connection: ActivityConnectionStatus;
+  period: ActivityPeriod;
+  rangeStart: string;
+  rangeEnd: string;
+  activeTotalSeconds: number;
+  apps: ActivityRankItem[];
+  websites: ActivityRankItem[];
+  timeline: ActivityTimelineItem[];
+}
+
 export type GroupLaunchStatus = "success" | "failed" | "missing" | "skipped";
 
 export interface GroupLaunchItemResult {
@@ -589,6 +614,33 @@ export async function updateTrackingSettings(settings: TrackingSettings): Promis
 export async function getUsageSummary(from: number, to: number): Promise<UsageSummary> {
   if (isBrowserDemo()) return browserDemoUsageSummary(from, to);
   return invoke<UsageSummary>("get_usage_summary", { request: { from, to } });
+}
+export async function getActivitySummary(period: ActivityPeriod): Promise<ActivitySummary> {
+  if (isBrowserDemo()) {
+    const now = new Date();
+    return {
+      connection: { status: "connected", message: "ActivityWatch 已連線", serverVersion: "demo" },
+      period,
+      rangeStart: new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString(),
+      rangeEnd: now.toISOString(),
+      activeTotalSeconds: 18_540,
+      apps: [
+        { label: "Code.exe", seconds: 7_840 },
+        { label: "msedge.exe", seconds: 4_930 },
+        { label: "Figma.exe", seconds: 2_160 },
+      ],
+      websites: [
+        { label: "github.com", seconds: 2_420 },
+        { label: "docs.rs", seconds: 1_180 },
+        { label: "figma.com", seconds: 760 },
+      ],
+      timeline: [
+        { itemType: "app", label: "Code.exe", detail: "Personal Place — activitywatch.rs", startedAt: new Date(now.getTime() - 420_000).toISOString(), durationSeconds: 420 },
+        { itemType: "website", label: "github.com", detail: "ActivityWatch documentation", startedAt: new Date(now.getTime() - 1_200_000).toISOString(), durationSeconds: 310 },
+      ],
+    };
+  }
+  return invoke<ActivitySummary>("get_activity_summary", { period });
 }
 export async function updateTrackedApp(appId: string, displayName: string, excluded: boolean): Promise<void> { if (isBrowserDemo()) return; await invoke("update_tracked_app", { request: { appId, displayName, excluded } }); }
 export async function clearUsageHistory(appId?: string): Promise<void> { if (isBrowserDemo()) return; await invoke("clear_usage_history", { request: { appId } }); }

@@ -20,6 +20,7 @@ import { GuideDialog } from "./components/GuideDialog";
 import { TodoDialog } from "./components/TodoDialog";
 import { FocusDialogSafe } from "./FocusDialogSafe";
 import { UsageDialog } from "./components/UsageDialog";
+import { ActivityWorkspace } from "./components/ActivityWorkspace";
 import { WidgetCardPreview } from "./components/WidgetCardPreview";
 import { ContextActionBar } from "./components/ContextActionBar";
 import { PageIcon } from "./components/PageIcon";
@@ -349,8 +350,19 @@ function App() {
     scheduleMainScroll(0);
   }
 
+  function showActivity() {
+    setView({ kind: "activity" });
+    setEditing(false);
+    setSelectedIds(new Set());
+    setSelectionAnchor(null);
+    setQuery("");
+    setSearchExpanded(false);
+    setOverlay(null);
+    scheduleMainScroll(0);
+  }
+
   function returnToOrigin() {
-    if (view.kind === "dashboard") return;
+    if (view.kind === "dashboard" || view.kind === "activity") return;
     const origin = view.origin;
     setActivePageId(origin.pageId);
     setQuery(origin.query);
@@ -949,7 +961,7 @@ function App() {
   const currentWidget = view.kind === "tool"
     ? state.cards.find((card) => card.id === view.widgetId && card.cardType === "widget") ?? null
     : null;
-  const currentViewOrigin = view.kind === "dashboard" ? null : view.origin;
+  const currentViewOrigin = view.kind === "dashboard" || view.kind === "activity" ? null : view.origin;
   const originPlace = currentViewOrigin?.placeId
     ? state.cards.find((card) => card.id === currentViewOrigin.placeId && card.cardType === "group") ?? null
     : null;
@@ -1040,7 +1052,7 @@ function App() {
         <nav className="workspace-list">
           {state.pages.map((page) => (
             <button
-              className={`workspace-button ${page.id === activePage.id ? "is-active" : ""}`}
+              className={`workspace-button ${view.kind !== "activity" && page.id === activePage.id ? "is-active" : ""}`}
               key={page.id}
               onClick={() => showDashboard(page.id)}
               title={page.name}
@@ -1066,6 +1078,16 @@ function App() {
             <span aria-hidden="true">{editing ? "✓" : "✎"}</span>
             <small>{editing ? zhTW.sidebar.finishEditing : zhTW.sidebar.edit}</small>
           </button>
+          <button
+            className={`workspace-button activity-sidebar-button${view.kind === "activity" ? " is-active" : ""}`}
+            type="button"
+            aria-current={view.kind === "activity" ? "page" : undefined}
+            onClick={showActivity}
+            title={zhTW.sidebar.activity}
+          >
+            <span className="activity-sidebar-icon" aria-hidden="true">◷</span>
+            <small>{zhTW.sidebar.activity}</small>
+          </button>
           <button className="workspace-button settings-button" onClick={() => setOverlay({ kind: "settings" })} title="設定">
             <span aria-hidden="true">⚙</span><small>{zhTW.sidebar.settings}</small>
           </button>
@@ -1073,7 +1095,9 @@ function App() {
       </aside>
 
       <main ref={mainContentRef} className={`main-content${view.kind !== "dashboard" ? " is-workspace-view" : ""}${openGroup ? " is-place-detail" : ""}`}>
-        {view.kind === "note" && currentNote ? (
+        {view.kind === "activity" ? (
+          <ActivityWorkspace />
+        ) : view.kind === "note" && currentNote ? (
           <NoteWorkspace
             note={currentNote}
             busy={mutationBusy}
@@ -1330,7 +1354,7 @@ function App() {
       {nativeDragActive && <div className="native-drop-overlay" role="status"><div className="native-drop-target"><span aria-hidden="true">＋</span><strong>放開即可加入{openGroup ? "這個地方" : "目前頁面"}</strong><small>可同時加入多個檔案、捷徑或資料夾</small></div></div>}
       {dropResult && <div className="floating-ingest-result"><IngestResultPanel result={dropResult} busy={dropBusy} onDismiss={() => { dropApprovalsRef.current.clear(); dropResultRef.current = null; setDropResult(null); }} onRetryDuplicates={() => void retryDroppedProblems(dropResult.issues.filter((issue) => issue.code === "duplicate"), "duplicate")} onConfirmRisky={() => void retryDroppedProblems(dropResult.issues.filter((issue) => issue.code === "risky"), "risky")} /></div>}
 
-      {overlay?.kind === "settings" && <div className="dialog-backdrop" onMouseDown={() => setOverlay(null)}><section ref={settingsDialogRef} tabIndex={-1} className="dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">SETTINGS</p><h2 id="settings-title">設定</h2></div><button className="icon-button" onClick={() => setOverlay(null)} aria-label="關閉設定">×</button></div><div className="settings-list"><section className="settings-theme" aria-labelledby="settings-theme-title"><div><strong id="settings-theme-title">{zhTW.appearance.title}</strong><small>{zhTW.appearance.description}</small></div><div className="theme-options">{COLOR_THEMES.map((theme) => <button type="button" key={theme} className={`theme-option theme-${theme}`} aria-label={zhTW.appearance.options[theme]} aria-pressed={colorTheme === theme} onClick={() => setColorTheme(theme)}><span className="theme-preview" aria-hidden="true"><i /><i /><i /></span><strong>{zhTW.appearance.options[theme]}</strong>{colorTheme === theme && <b aria-hidden="true">✓</b>}</button>)}</div></section><button className="settings-row" onClick={() => setOverlay({ kind: "guide" })}><span className="settings-row-icon" aria-hidden="true">?</span><span><strong>{zhTW.guide.settingsTitle}</strong><small>{zhTW.guide.settingsDescription}</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><button className="settings-row" onClick={() => setOverlay({ kind: "backup" })}><span className="settings-row-icon" aria-hidden="true">⇅</span><span><strong>備份與還原</strong><small>匯出或取代式還原本機資料</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><div className="settings-row cache-row"><span className="settings-row-icon" aria-hidden="true">▧</span><span><strong>縮圖儲存區</strong><small>{cacheInfo ? `${cacheInfo.entries} 個預覽 · ${formatStorageSize(cacheInfo.bytes)}` : "正在讀取使用量…"}</small></span><button className="cache-clear-button" disabled={cacheBusy || !cacheInfo || cacheInfo.entries === 0} onClick={() => void clearStoredPreviews()}>{cacheBusy ? "清除中" : "清除"}</button></div></div><footer className="settings-footer"><span>{zhTW.brand.name}</span><span>{zhTW.release.versionStatus("1.4.0")}</span></footer></section></div>}
+      {overlay?.kind === "settings" && <div className="dialog-backdrop" onMouseDown={() => setOverlay(null)}><section ref={settingsDialogRef} tabIndex={-1} className="dialog settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}><div className="dialog-header"><div><p className="eyebrow">SETTINGS</p><h2 id="settings-title">設定</h2></div><button className="icon-button" onClick={() => setOverlay(null)} aria-label="關閉設定">×</button></div><div className="settings-list"><section className="settings-theme" aria-labelledby="settings-theme-title"><div><strong id="settings-theme-title">{zhTW.appearance.title}</strong><small>{zhTW.appearance.description}</small></div><div className="theme-options">{COLOR_THEMES.map((theme) => <button type="button" key={theme} className={`theme-option theme-${theme}`} aria-label={zhTW.appearance.options[theme]} aria-pressed={colorTheme === theme} onClick={() => setColorTheme(theme)}><span className="theme-preview" aria-hidden="true"><i /><i /><i /></span><strong>{zhTW.appearance.options[theme]}</strong>{colorTheme === theme && <b aria-hidden="true">✓</b>}</button>)}</div></section><button className="settings-row" onClick={() => setOverlay({ kind: "guide" })}><span className="settings-row-icon" aria-hidden="true">?</span><span><strong>{zhTW.guide.settingsTitle}</strong><small>{zhTW.guide.settingsDescription}</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><button className="settings-row" onClick={() => setOverlay({ kind: "backup" })}><span className="settings-row-icon" aria-hidden="true">⇅</span><span><strong>備份與還原</strong><small>匯出或取代式還原本機資料</small></span><span className="settings-row-arrow" aria-hidden="true">›</span></button><div className="settings-row cache-row"><span className="settings-row-icon" aria-hidden="true">▧</span><span><strong>縮圖儲存區</strong><small>{cacheInfo ? `${cacheInfo.entries} 個預覽 · ${formatStorageSize(cacheInfo.bytes)}` : "正在讀取使用量…"}</small></span><button className="cache-clear-button" disabled={cacheBusy || !cacheInfo || cacheInfo.entries === 0} onClick={() => void clearStoredPreviews()}>{cacheBusy ? "清除中" : "清除"}</button></div></div><footer className="settings-footer"><span>{zhTW.brand.name}</span><span>{zhTW.release.versionStatus("1.5.0")}</span></footer></section></div>}
 
       {overlay?.kind === "guide" && <GuideDialog onClose={() => setOverlay({ kind: "settings" })} />}
 
