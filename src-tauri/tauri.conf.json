@@ -39,6 +39,17 @@
         "installMode": "currentUser",
         "displayLanguageSelector": true,
         "languages": ["TradChinese", "English"]
+      },
+      "signCommand": {
+        "cmd": "powershell",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "D:\\Personal_Place\\app\\scripts\\sign-windows.ps1",
+          "%1"
+        ]
       }
     }
   }
