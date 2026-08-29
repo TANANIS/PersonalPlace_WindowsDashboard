@@ -190,13 +190,28 @@ export interface ActivityConnectionStatus {
   message: string;
   serverVersion: string | null;
 }
-export interface ActivityRankItem { label: string; seconds: number; }
+export interface ActivityRankItem { key: string; label: string; seconds: number; }
 export interface ActivityTimelineItem {
-  itemType: "app" | "website";
   label: string;
-  detail: string | null;
+  context: string | null;
   startedAt: string;
+  endedAt: string;
   durationSeconds: number;
+}
+export type ActivityDetailKind = "app" | "website";
+export interface ActivityDetailItem {
+  title: string | null;
+  url: string | null;
+  startedAt: string;
+  endedAt: string;
+  durationSeconds: number;
+}
+export interface ActivityDetail {
+  kind: ActivityDetailKind;
+  label: string;
+  period: ActivityPeriod;
+  totalSeconds: number;
+  items: ActivityDetailItem[];
 }
 export interface ActivitySummary {
   connection: ActivityConnectionStatus;
@@ -206,7 +221,6 @@ export interface ActivitySummary {
   activeTotalSeconds: number;
   apps: ActivityRankItem[];
   websites: ActivityRankItem[];
-  timeline: ActivityTimelineItem[];
 }
 
 export type GroupLaunchStatus = "success" | "failed" | "missing" | "skipped";
@@ -625,22 +639,53 @@ export async function getActivitySummary(period: ActivityPeriod): Promise<Activi
       rangeEnd: now.toISOString(),
       activeTotalSeconds: 18_540,
       apps: [
-        { label: "Code.exe", seconds: 7_840 },
-        { label: "msedge.exe", seconds: 4_930 },
-        { label: "Figma.exe", seconds: 2_160 },
+        { key: "Visual Studio Code", label: "Visual Studio Code", seconds: 7_840 },
+        { key: "Microsoft Edge", label: "Microsoft Edge", seconds: 4_930 },
+        { key: "Figma", label: "Figma", seconds: 2_160 },
       ],
       websites: [
-        { label: "github.com", seconds: 2_420 },
-        { label: "docs.rs", seconds: 1_180 },
-        { label: "figma.com", seconds: 760 },
-      ],
-      timeline: [
-        { itemType: "app", label: "Code.exe", detail: "Personal Place — activitywatch.rs", startedAt: new Date(now.getTime() - 420_000).toISOString(), durationSeconds: 420 },
-        { itemType: "website", label: "github.com", detail: "ActivityWatch documentation", startedAt: new Date(now.getTime() - 1_200_000).toISOString(), durationSeconds: 310 },
+        { key: "github.com", label: "github.com", seconds: 2_420 },
+        { key: "docs.rs", label: "docs.rs", seconds: 1_180 },
+        { key: "figma.com", label: "figma.com", seconds: 760 },
       ],
     };
   }
   return invoke<ActivitySummary>("get_activity_summary", { period });
+}
+export async function getActivityTimeline(): Promise<ActivityTimelineItem[]> {
+  if (isBrowserDemo()) {
+    const now = new Date();
+    const firstStart = new Date(now.getTime() - 2_100_000);
+    const firstEnd = new Date(now.getTime() - 1_140_000);
+    const secondStart = new Date(now.getTime() - 4_200_000);
+    const secondEnd = new Date(now.getTime() - 3_540_000);
+    return [
+      { label: "Microsoft Edge", context: "youtube.com · 人體繪畫教學", startedAt: firstStart.toISOString(), endedAt: firstEnd.toISOString(), durationSeconds: 960 },
+      { label: "Discord", context: null, startedAt: secondStart.toISOString(), endedAt: secondEnd.toISOString(), durationSeconds: 660 },
+    ];
+  }
+  return invoke<ActivityTimelineItem[]>("get_activity_timeline");
+}
+export async function getActivityDetail(period: ActivityPeriod, kind: ActivityDetailKind, key: string): Promise<ActivityDetail> {
+  if (isBrowserDemo()) {
+    const now = new Date();
+    const startedAt = new Date(now.getTime() - 1_200_000);
+    const endedAt = new Date(now.getTime() - 240_000);
+    return {
+      kind,
+      label: key,
+      period,
+      totalSeconds: 960,
+      items: [{
+        title: kind === "website" ? "ActivityWatch documentation" : "Personal Place — Activity Workspace",
+        url: kind === "website" ? `https://${key}/example` : null,
+        startedAt: startedAt.toISOString(),
+        endedAt: endedAt.toISOString(),
+        durationSeconds: 960,
+      }],
+    };
+  }
+  return invoke<ActivityDetail>("get_activity_detail", { period, kind, key });
 }
 export async function updateTrackedApp(appId: string, displayName: string, excluded: boolean): Promise<void> { if (isBrowserDemo()) return; await invoke("update_tracked_app", { request: { appId, displayName, excluded } }); }
 export async function clearUsageHistory(appId?: string): Promise<void> { if (isBrowserDemo()) return; await invoke("clear_usage_history", { request: { appId } }); }

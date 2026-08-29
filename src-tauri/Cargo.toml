@@ -1,6 +1,6 @@
 [package]
 name = "personal-workspace"
-version = "1.5.0"
+version = "1.6.0"
 description = "Local-first Windows personal dashboard"
 authors = ["JSrad"]
 edition = "2021"

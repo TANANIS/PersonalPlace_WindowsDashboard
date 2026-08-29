@@ -4,13 +4,12 @@ Personal Place 是 Windows 上、本機優先的個人數位首頁。你可以�
 
 ## 下載
 
-目前版本：**1.5.0**
+目前版本：**1.6.0**
 
-- [安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.5.0/releases/Personal-Place-1.5.0/Personal-Place-1.5.0-setup.exe)
-- [免安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.5.0/releases/Personal-Place-1.5.0/Personal-Place-1.5.0-portable.exe)
-- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.5.0/releases/Personal-Place-1.5.0/SHA256SUMS.txt)
+- [安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.6.0/releases/Personal-Place-1.6.0/Personal-Place-1.6.0-setup.exe)
+- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.6.0/releases/Personal-Place-1.6.0/SHA256SUMS.txt)
 
-目前發行檔包含 `JSrad Personal Place` 開發者自簽章，但不是由公開信任的憑證授權單位簽發；Windows 仍可能顯示 SmartScreen 或無法驗證發行者的提醒。
+v1.6.0 只發布由本次 source/build 產生的 NSIS installer；本機沒有可用的 code-signing certificate，因此產物未簽章，Windows 可能顯示 SmartScreen 或無法驗證發行者的提醒。這次不發布 portable，避免沿用來源不明或無法可靠驗證的舊 binary。
 
 ## 1.5.0：ActivityWatch 活動工作區
 
@@ -26,6 +25,13 @@ Personal Place 不會取代 ActivityWatch，也不負責在背景監控使用行
 - 顯示有效使用總時間、App 使用排行與 Website domain 使用排行。
 - 最近活動以簡潔時間軸呈現，不加入生產力評分或 AI 分析。
 - ActivityWatch 未啟動時會顯示 unavailable 狀態，不影響 Dashboard、Place 與其他工具。
+
+## 1.6.0：更容易理解活動資料
+
+- App 名稱會經過 normalization（例如 `msedge.exe` 顯示為 Microsoft Edge），網站排行會排除瀏覽器內部頁面與低於 60 秒的項目。
+- 點擊 App 或 Website domain 排行項目可查看選定期間的活動區段；頁面標題優先顯示，完整 URL 只在詳細檢視中呈現。
+- 新增今日時間軸，按時間顯示 normalized App、網站標題／domain、開始／結束時間與 duration；AFK 與 browser/window 重複區段不會重複計算。
+- ActivityWatch privacy model unchanged：固定連線 `http://127.0.0.1:5600`，不新增遙測、雲端同步或原始事件資料庫。
 
 ### 推薦安裝方式（Windows）
 

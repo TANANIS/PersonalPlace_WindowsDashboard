@@ -16,7 +16,7 @@
 
 SQLite 讀取採一致性 transaction，因此已提交但仍位於 WAL 的最新資料也會包含在匯出內容。
 
-系統級「活動」工作區即時讀取本機 ActivityWatch；Personal Place 不另建活動歷史資料庫、不複製原始事件，因此這些資料不包含在備份中。既有 Usage tracker 的資料與設定維持原本行為。
+系統級「活動」工作區即時讀取本機 ActivityWatch；摘要、排行 drill-down 與今日時間軸都只在畫面需要時查詢。Personal Place 不另建活動歷史資料庫、不複製原始事件，因此這些資料不包含在備份中。normalization、internal-page／sub-minute 過濾與 timeline 去重只存在於查詢／展示層。既有 Usage tracker 的資料與設定維持原本行為。
 
 ## 還原
 

@@ -26,7 +26,9 @@ mod todo;
 mod usage;
 mod widgets;
 
-use activitywatch::{ActivityPeriod, ActivitySummary};
+use activitywatch::{
+    ActivityDetail, ActivityDetailKind, ActivityPeriod, ActivitySummary, ActivityTimelineItem,
+};
 use dashboard::{CardMutation, DashboardState};
 use focus::{FocusSession, FocusSettings, FocusState, StartFocusRequest};
 use ingest::{IngestRequest, IngestResult};
@@ -1351,6 +1353,26 @@ async fn get_activity_summary(period: ActivityPeriod) -> ActivitySummary {
         .unwrap_or_else(|_| activitywatch::get_activity_summary(period))
 }
 
+#[tauri::command]
+async fn get_activity_timeline() -> Result<Vec<ActivityTimelineItem>, String> {
+    tauri::async_runtime::spawn_blocking(activitywatch::get_activity_timeline)
+        .await
+        .map_err(|error| format!("無法讀取今日活動時間軸：{error}"))?
+}
+
+#[tauri::command]
+async fn get_activity_detail(
+    period: ActivityPeriod,
+    kind: ActivityDetailKind,
+    key: String,
+) -> Result<ActivityDetail, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        activitywatch::get_activity_detail(period, kind, key)
+    })
+    .await
+    .map_err(|error| format!("無法讀取活動詳細資料：{error}"))?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1570,6 +1592,8 @@ pub fn run() {
             update_tracked_app,
             clear_usage_history,
             get_activity_summary,
+            get_activity_timeline,
+            get_activity_detail,
             launch_card,
             get_item_preview,
             get_preview_cache_info,
