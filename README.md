@@ -7,9 +7,11 @@ Personal Place 是 Windows 上、本機優先的個人數位首頁。你可以�
 目前版本：**1.6.1**
 
 - [安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.6.1/releases/Personal-Place-1.6.1/Personal-Place-1.6.1-setup.exe)
+- [免安裝版 EXE（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/heads/master/releases/Personal-Place-1.6.1/Personal-Place-1.6.1-portable.exe)
+- [免安裝版 ZIP](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/heads/master/releases/Personal-Place-1.6.1/Personal-Place-1.6.1-portable.zip)
 - [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.6.1/releases/Personal-Place-1.6.1/SHA256SUMS.txt)
 
-v1.6.1 只發布由本次 source/build 產生、停用 NSIS 壓縮的 installer；本機沒有可用的 code-signing certificate，因此產物未簽章，Windows 仍可能顯示 SmartScreen 或無法驗證發行者的提醒。這次不發布 portable，避免沿用來源不明或無法可靠驗證的舊 binary。
+v1.6.1 的 installer 由本次 source/build 產生並停用 NSIS 壓縮；另提供同一個 v1.6.1 executable 的免安裝 EXE／ZIP。所有產物目前未簽章，Windows 仍可能顯示 SmartScreen、無法驗證發行者或安全性情報警告。
 
 ## 1.5.0：ActivityWatch 活動工作區
 
