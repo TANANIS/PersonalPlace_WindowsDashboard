@@ -140,6 +140,13 @@ impl WorkspaceStore {
             if changed == 0 {
                 return Err("找不到要更新的待辦清單。".to_string());
             }
+            transaction
+                .execute(
+                    "UPDATE cards SET title = ?2
+                     WHERE card_type = 'widget' AND widget_kind = 'todo' AND widget_resource_id = ?1",
+                    params![list_id, title],
+                )
+                .map_err(|error| format!("無法同步待辦小工具名稱：{error}"))?;
             Ok(())
         })
     }

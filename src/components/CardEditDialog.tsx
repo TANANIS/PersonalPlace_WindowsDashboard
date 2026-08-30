@@ -75,7 +75,9 @@ export function CardEditDialog({
               maxLength={200}
               required
               autoFocus
+              disabled={item.widgetKind === "todo"}
             />
+            {item.widgetKind === "todo" && <small>待辦小工具名稱會跟隨目前清單名稱。</small>}
           </label>
           <label>
             副標題

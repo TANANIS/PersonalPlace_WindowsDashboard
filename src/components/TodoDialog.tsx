@@ -3,6 +3,7 @@ import type { DashboardCard, DashboardState } from "../types";
 import {
   createTodoItem,
   createTodoList,
+  getDashboard,
   deleteTodoItems,
   getTodoOverview,
   isTauriRuntime,
@@ -158,12 +159,13 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged, emb
     if (targetIndex >= 0) void run(() => moveTodoItems([sourceId], target.listId, target.parentId, targetIndex));
   }, busy);
 
-  async function run(operation: () => Promise<TodoOverview>) {
+  async function run(operation: () => Promise<TodoOverview>, syncDashboard = false) {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
       setOverview(await operation());
+      if (syncDashboard && isTauriRuntime()) onDashboardChanged(await getDashboard());
       onChanged();
     } catch (reason) {
       setError(platformErrorMessage(reason, "待辦操作失敗。"));
@@ -192,6 +194,33 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged, emb
       } catch (reason) {
         setError(platformErrorMessage(reason, "無法切換小工具清單。"));
       }
+    }
+  }
+
+  async function createList() {
+    if (busy || !newListTitle.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await createTodoList(newListTitle.trim());
+      const created = result.lists.find((list) => !overview?.lists.some((old) => old.id === list.id))
+        ?? result.lists.find((list) => list.title === newListTitle.trim());
+      setOverview(result);
+      setNewListTitle("");
+      if (!created) return;
+      setListId(created.id);
+      onChanged();
+      if (isTauriRuntime() && created.id !== widget.widgetResourceId) {
+        try {
+          onDashboardChanged(await updateWidgetPreferences(widget.id, created.id));
+        } catch {
+          setError("清單已建立，但無法將目前小工具切換到新清單。");
+        }
+      }
+    } catch (reason) {
+      setError(platformErrorMessage(reason, "待辦操作失敗。"));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -251,7 +280,7 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged, emb
                 <small>{overview.items.filter((item) => item.listId === list.id && item.status === "active").length}</small>
               </button>
             ))}
-            <form onSubmit={(event) => { event.preventDefault(); if (!newListTitle.trim()) return; void run(async () => { const result = await createTodoList(newListTitle.trim()); const created = result.lists.filter((list) => !overview?.lists.some((old) => old.id === list.id)).at(-1); if (created) setListId(created.id); setNewListTitle(""); return result; }); }}>
+            <form onSubmit={(event) => { event.preventDefault(); void createList(); }}>
               <input value={newListTitle} maxLength={120} onChange={(event) => setNewListTitle(event.target.value)} placeholder="新增清單" aria-label="新增清單名稱" />
               <button type="submit" disabled={!newListTitle.trim() || busy} aria-label="建立清單">＋</button>
             </form>
@@ -272,7 +301,7 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged, emb
 
             {activeList && (
               <div className="todo-list-heading">
-                <input value={activeList.title} aria-label="目前清單名稱" onChange={(event) => setOverview((current) => current ? { ...current, lists: current.lists.map((list) => list.id === activeList.id ? { ...list, title: event.target.value } : list) } : current)} onBlur={(event) => { const title = event.target.value.trim(); if (title) void run(() => updateTodoList(activeList.id, title, false)); }} />
+                <input value={activeList.title} aria-label="目前清單名稱" onChange={(event) => setOverview((current) => current ? { ...current, lists: current.lists.map((list) => list.id === activeList.id ? { ...list, title: event.target.value } : list) } : current)} onBlur={(event) => { const title = event.target.value.trim(); if (title) void run(() => updateTodoList(activeList.id, title, false), true); }} />
                 <button type="button" className="danger-text" disabled={busy || (overview?.lists.filter((list) => !list.archivedAt).length ?? 0) <= 1} onClick={() => { if (window.confirm(`封存「${activeList.title}」？`)) void run(() => updateTodoList(activeList.id, activeList.title, true)); }}>封存清單</button>
               </div>
             )}

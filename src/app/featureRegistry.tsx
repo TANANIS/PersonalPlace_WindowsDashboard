@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ActivityWorkspace } from "../components/ActivityWorkspace";
 import { CalendarWorkspace } from "../features/calendar/CalendarWorkspace";
+import { TodayWorkspace } from "../features/today/TodayWorkspace";
 
 export interface SystemWorkspaceDefinition {
   id: string;
@@ -12,6 +13,13 @@ export interface SystemWorkspaceDefinition {
 }
 
 const systemWorkspaces: readonly SystemWorkspaceDefinition[] = [
+  {
+    id: "today",
+    title: "今天",
+    icon: "☀",
+    searchKeywords: ["today", "今天"],
+    render: () => <TodayWorkspace />,
+  },
   {
     id: "activity",
     title: "活動",

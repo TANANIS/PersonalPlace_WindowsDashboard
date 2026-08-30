@@ -480,9 +480,10 @@ export async function createWidget(
   pageId: string,
   parentGroupId: string | null,
   widgetKind: WidgetKind,
+  todoListId?: string,
 ): Promise<CreateWidgetResult> {
   return invoke<CreateWidgetResult>("create_widget", {
-    request: { pageId, parentGroupId, widgetKind },
+    request: { pageId, parentGroupId, widgetKind, todoListId: todoListId ?? null },
   });
 }
 

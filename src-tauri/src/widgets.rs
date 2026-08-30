@@ -39,12 +39,14 @@ impl WorkspaceStore {
         page_id: &str,
         parent_group_id: Option<&str>,
         widget_kind: &str,
+        todo_list_id: Option<&str>,
     ) -> Result<CreateWidgetResult, String> {
         if !matches!(widget_kind, "todo" | "focus" | "usage") {
             return Err("不支援這種小工具。".to_string());
         }
         let widget_id = unique_id("widget");
-        let list_id = (widget_kind == "todo").then(|| unique_id("todo-list"));
+        let list_id = (widget_kind == "todo").then(|| todo_list_id.map(str::to_owned).unwrap_or_else(|| unique_id("todo-list")));
+        let creates_list = widget_kind == "todo" && todo_list_id.is_none();
         let now = Utc::now().timestamp();
         let dashboard = self.mutate_with_undo(|transaction| {
             let page_exists: bool = transaction
@@ -71,7 +73,20 @@ impl WorkspaceStore {
                     return Err("小工具只能放在頁面或頂層群組中。".to_string());
                 }
             }
-            if let Some(list_id) = list_id.as_deref() {
+            if widget_kind == "todo" && !creates_list {
+                let list_exists: bool = transaction
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM todo_lists WHERE id = ?1 AND archived_at IS NULL)",
+                        [todo_list_id.ok_or_else(|| "找不到可用的待辦清單。".to_string())?],
+                        |row| row.get(0),
+                    )
+                    .map_err(|error| format!("無法確認待辦清單：{error}"))?;
+                if !list_exists {
+                    return Err("找不到可用的待辦清單。".to_string());
+                }
+            }
+            if creates_list {
+                let list_id = list_id.as_deref().ok_or_else(|| "無法建立小工具待辦清單。".to_string())?;
                 let list_position: i64 = transaction
                     .query_row(
                         "SELECT COALESCE(MAX(position), -1) + 1 FROM todo_lists WHERE archived_at IS NULL",
@@ -87,6 +102,19 @@ impl WorkspaceStore {
                     )
                     .map_err(|error| format!("無法建立小工具待辦清單：{error}"))?;
             }
+            let todo_title = if widget_kind == "todo" {
+                Some(
+                    transaction
+                        .query_row(
+                            "SELECT title FROM todo_lists WHERE id = ?1",
+                            [list_id.as_deref().ok_or_else(|| "找不到可用的待辦清單。".to_string())?],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .map_err(|error| format!("無法讀取待辦清單名稱：{error}"))?,
+                )
+            } else {
+                None
+            };
             let position: i64 = transaction
                 .query_row(
                     "SELECT COALESCE(MAX(position), -1) + 1 FROM cards
@@ -96,7 +124,7 @@ impl WorkspaceStore {
                 )
                 .map_err(|error| format!("無法計算小工具位置：{error}"))?;
             let (title, subtitle, symbol, tone) = match widget_kind {
-                "todo" => ("待辦事項", "下一步要做的事", "✓", "cyan"),
+                "todo" => (todo_title.as_deref().unwrap_or("待辦事項"), "下一步要做的事", "✓", "cyan"),
                 "focus" => ("Focus Timer", "專注與休息循環", "◷", "violet"),
                 "usage" => ("使用時間", "本機前景應用程式", "◴", "amber"),
                 _ => unreachable!(),
@@ -150,7 +178,7 @@ impl WorkspaceStore {
             }
             let changed = transaction
                 .execute(
-                    "UPDATE cards SET widget_resource_id = ?2
+                    "UPDATE cards SET widget_resource_id = ?2, title = (SELECT title FROM todo_lists WHERE id = ?2)
                      WHERE id = ?1 AND card_type = 'widget' AND widget_kind = 'todo'",
                     params![card_id, list_id],
                 )
@@ -288,7 +316,7 @@ mod tests {
                 std::path::Path::new("backups"),
             )
             .unwrap();
-        let created = store.create_widget("home", None, "todo").unwrap();
+        let created = store.create_widget("home", None, "todo", None).unwrap();
         let widget = created
             .dashboard
             .cards
@@ -316,10 +344,55 @@ mod tests {
                 std::path::Path::new("backups"),
             )
             .unwrap();
-        let created = store.create_widget("home", None, "focus").unwrap();
+        let created = store.create_widget("home", None, "focus", None).unwrap();
 
         let summary = store.get_widget_summary(&created.widget_id).unwrap();
         assert_eq!(summary.widget_kind, "focus");
         assert_eq!(summary.primary_value, "25:00");
+    }
+
+    #[test]
+    fn todo_widget_can_bind_existing_active_list_without_creating_another() {
+        let store = WorkspaceStore::in_memory().unwrap();
+        store.initialize(None, &std::collections::HashMap::new(), std::path::Path::new("missing"), std::path::Path::new("backups")).unwrap();
+        let (_, list_id) = store.create_todo_list("Unity").unwrap();
+        let created = store.create_widget("home", None, "todo", Some(&list_id)).unwrap();
+        let widget = created.dashboard.cards.iter().find(|card| card.id == created.widget_id).unwrap();
+        assert_eq!(widget.widget_resource_id.as_deref(), Some(list_id.as_str()));
+        assert_eq!(widget.title, "Unity");
+        assert_eq!(store.get_todo_overview().unwrap().lists.len(), 1);
+    }
+
+    #[test]
+    fn todo_widget_titles_follow_list_renames_and_switches_for_all_references() {
+        let store = WorkspaceStore::in_memory().unwrap();
+        store.initialize(None, &std::collections::HashMap::new(), std::path::Path::new("missing"), std::path::Path::new("backups")).unwrap();
+        let (_, unity_id) = store.create_todo_list("Unity").unwrap();
+        let (_, art_id) = store.create_todo_list("畫畫").unwrap();
+        let first = store.create_widget("home", None, "todo", Some(&unity_id)).unwrap();
+        let second = store.create_widget("home", None, "todo", Some(&unity_id)).unwrap();
+        let focus = store.create_widget("home", None, "focus", None).unwrap();
+        let usage = store.create_widget("home", None, "usage", None).unwrap();
+        let dashboard = store.set_todo_widget_list(&first.widget_id, &art_id).unwrap();
+        assert_eq!(dashboard.cards.iter().find(|card| card.id == first.widget_id).unwrap().title, "畫畫");
+        assert_eq!(dashboard.cards.iter().find(|card| card.id == second.widget_id).unwrap().title, "Unity");
+        assert_eq!(dashboard.cards.iter().find(|card| card.id == focus.widget_id).unwrap().title, "Focus Timer");
+        assert_eq!(dashboard.cards.iter().find(|card| card.id == usage.widget_id).unwrap().title, "使用時間");
+        store.update_todo_list(&unity_id, "Unity 開發", false).unwrap();
+        let dashboard = store.get_dashboard().unwrap();
+        assert_eq!(dashboard.cards.iter().find(|card| card.id == second.widget_id).unwrap().title, "Unity 開發");
+        assert_eq!(dashboard.cards.iter().find(|card| card.id == first.widget_id).unwrap().title, "畫畫");
+        assert_eq!(dashboard.cards.iter().find(|card| card.id == focus.widget_id).unwrap().title, "Focus Timer");
+        assert!(store.update_dashboard_card(&second.widget_id, crate::dashboard::CardMutation { title: Some("手動改名".to_string()), ..Default::default() }).is_err());
+    }
+
+    #[test]
+    fn todo_widget_rejects_missing_or_archived_list() {
+        let store = WorkspaceStore::in_memory().unwrap();
+        store.initialize(None, &std::collections::HashMap::new(), std::path::Path::new("missing"), std::path::Path::new("backups")).unwrap();
+        assert!(store.create_widget("home", None, "todo", Some("missing-list")).is_err());
+        let (_, list_id) = store.create_todo_list("舊清單").unwrap();
+        store.update_todo_list(&list_id, "舊清單", true).unwrap();
+        assert!(store.create_widget("home", None, "todo", Some(&list_id)).is_err());
     }
 }

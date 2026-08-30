@@ -89,6 +89,25 @@ impl WorkspaceStore {
     ) -> Result<DashboardState, String> {
         validate_card_mutation(&update)?;
         self.mutate_with_undo(|transaction| {
+            if update.title.is_some() {
+                let todo_widget: Option<(String, Option<String>, Option<String>)> = transaction
+                    .query_row(
+                        "SELECT c.widget_kind, c.widget_resource_id, l.title
+                         FROM cards c LEFT JOIN todo_lists l ON l.id = c.widget_resource_id
+                         WHERE c.id = ?1 AND c.card_type = 'widget'",
+                        [card_id],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    )
+                    .optional()
+                    .map_err(|error| format!("無法確認卡片類型：{error}"))?;
+                if let Some((kind, _, canonical_title)) = todo_widget {
+                    if kind == "todo"
+                        && update.title.as_deref().map(str::trim) != canonical_title.as_deref()
+                    {
+                        return Err("待辦小工具名稱請從清單管理。".to_string());
+                    }
+                }
+            }
             let changed = transaction
                 .execute(
                     "UPDATE cards SET

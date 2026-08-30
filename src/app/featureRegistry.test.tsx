@@ -3,7 +3,7 @@ import { getSystemWorkspace, getSystemWorkspaces } from "./featureRegistry";
 
 describe("system workspace registry", () => {
   it("exposes system workspaces through stable definitions", () => {
-    expect(getSystemWorkspaces().map((workspace) => workspace.id)).toEqual(["activity", "calendar"]);
+    expect(getSystemWorkspaces().map((workspace) => workspace.id)).toEqual(["today", "activity", "calendar"]);
     expect(getSystemWorkspace("activity")).toMatchObject({
       id: "activity",
       title: "活動",
@@ -17,6 +17,6 @@ describe("system workspace registry", () => {
   });
 
   it("returns undefined for a workspace that is not registered", () => {
-    expect(getSystemWorkspace("today")).toBeUndefined();
+    expect(getSystemWorkspace("unknown-workspace")).toBeUndefined();
   });
 });

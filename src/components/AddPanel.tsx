@@ -1,13 +1,16 @@
-import { useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   ingestItems,
+  createTodoList,
+  getTodoOverview,
   platformErrorMessage,
   type IngestInput,
   type IngestIssueCode,
   type IngestProblem,
   type IngestRequest,
   type IngestResult,
+  type TodoList,
 } from "../lib/platform";
 import type { LauncherItem, WidgetKind } from "../types";
 import { useModalFocus } from "../lib/accessibility";
@@ -18,7 +21,7 @@ interface AddPanelProps {
   onAdded?: (items: LauncherItem[]) => void;
   onClose: () => void;
   performIngest?: (request: IngestRequest) => Promise<IngestResult>;
-  onCreateWidget?: (kind: WidgetKind) => Promise<void>;
+  onCreateWidget?: (kind: WidgetKind, todoListId?: string) => Promise<void>;
   onCreateNote?: () => void;
 }
 
@@ -253,6 +256,12 @@ export function AddPanel({
   const [inputValue, setInputValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [widgetBusy, setWidgetBusy] = useState<WidgetKind | null>(null);
+  const [todoSetup, setTodoSetup] = useState(false);
+  const [todoMode, setTodoMode] = useState<"new" | "existing">("new");
+  const [todoTitle, setTodoTitle] = useState("待辦事項");
+  const [todoLists, setTodoLists] = useState<TodoList[]>([]);
+  const [todoListId, setTodoListId] = useState("");
+  const [todoSetupError, setTodoSetupError] = useState<string | null>(null);
   const [result, setResult] = useState<IngestResult | null>(null);
   const approvalsRef = useRef(new Map<string, IngestPermissions>());
   const dialogRef = useModalFocus<HTMLElement>(true, onClose);
@@ -383,15 +392,46 @@ export function AddPanel({
   const duplicateProblems = result?.issues.filter((issue) => issue.code === "duplicate") ?? [];
   const riskyProblems = result?.issues.filter((issue) => issue.code === "risky") ?? [];
 
-  async function addWidget(kind: WidgetKind) {
+  async function addWidget(kind: WidgetKind, todoListId?: string) {
     if (!onCreateWidget || busy || widgetBusy) return;
     setWidgetBusy(kind);
     try {
-      await onCreateWidget(kind);
+      await onCreateWidget(kind, todoListId);
       onClose();
     } finally {
       setWidgetBusy(null);
     }
+  }
+
+  async function beginTodoSetup() {
+    setTodoSetup(true);
+    setTodoMode("new");
+    setTodoSetupError(null);
+    try {
+      const overview = await getTodoOverview();
+      setTodoLists(overview.lists.filter((list) => !list.archivedAt));
+    } catch (error) {
+      setTodoSetupError(platformErrorMessage(error, "無法讀取待辦清單。"));
+    }
+  }
+
+  async function submitTodoSetup(event: FormEvent) {
+    event.preventDefault();
+    if (widgetBusy || busy) return;
+    setTodoSetupError(null);
+    if (todoMode === "existing") {
+      if (!todoListId) { setTodoSetupError("請選擇一個待辦清單。"); return; }
+      try { await addWidget("todo", todoListId); } catch (error) { setTodoSetupError(platformErrorMessage(error, "無法加入待辦小工具。")); }
+      return;
+    }
+    if (!todoTitle.trim()) { setTodoSetupError("請輸入清單名稱。"); return; }
+    try {
+      const overview = await createTodoList(todoTitle.trim());
+      const existingIds = new Set(todoLists.map((list) => list.id));
+      const created = overview.lists.find((list) => !existingIds.has(list.id) && !list.archivedAt);
+      if (!created) { setTodoSetupError("清單已建立，但無法取得新清單。"); return; }
+      try { await addWidget("todo", created.id); } catch { setTodoSetupError("清單已建立，但無法加入待辦小工具。"); }
+    } catch (error) { setTodoSetupError(platformErrorMessage(error, "無法建立待辦清單。")); }
   }
 
   return (
@@ -489,19 +529,24 @@ export function AddPanel({
               <h3 id="add-widget-title">加入小工具</h3>
               <small>小工具只顯示摘要，點開後才進入完整功能。</small>
             </div>
-            <div className="add-widget-grid">
+            {!todoSetup ? <div className="add-widget-grid">
               {([
                 ["todo", "✓", "待辦事項", "清單、截止時間與提醒"],
                 ["focus", "◷", "Focus Timer", "專注與休息循環"],
                 ["usage", "◴", "使用時間", "本機前景 App 統計"],
               ] as const).map(([kind, symbol, title, description]) => (
-                <button type="button" key={kind} disabled={Boolean(widgetBusy)} onClick={() => void addWidget(kind)}>
+                <button type="button" key={kind} disabled={Boolean(widgetBusy)} onClick={() => kind === "todo" ? void beginTodoSetup() : void addWidget(kind)}>
                   <span aria-hidden="true">{symbol}</span>
                   <span><strong>{title}</strong><small>{description}</small></span>
                   <span aria-hidden="true">＋</span>
                 </button>
               ))}
-            </div>
+            </div> : <form className="todo-widget-setup" onSubmit={(event) => void submitTodoSetup(event)}>
+              <div className="todo-widget-modes"><label><input type="radio" checked={todoMode === "new"} onChange={() => setTodoMode("new")} /> 建立新清單</label><label><input type="radio" checked={todoMode === "existing"} onChange={() => setTodoMode("existing")} /> 使用既有清單</label></div>
+              {todoMode === "new" ? <input value={todoTitle} maxLength={120} onChange={(event) => setTodoTitle(event.target.value)} placeholder="清單名稱" aria-label="新待辦清單名稱" /> : <select value={todoListId} onChange={(event) => setTodoListId(event.target.value)} aria-label="選擇待辦清單"><option value="">選擇清單</option>{todoLists.map((list) => <option value={list.id} key={list.id}>{list.title}</option>)}</select>}
+              {todoSetupError && <p className="form-error" role="alert">{todoSetupError}</p>}
+              <div className="add-panel-actions"><button type="submit" className="button primary" disabled={Boolean(widgetBusy) || busy}>{widgetBusy ? "加入中…" : "加入"}</button><button type="button" className="button secondary" disabled={Boolean(widgetBusy)} onClick={() => setTodoSetup(false)}>返回</button></div>
+            </form>}
           </section>
         )}
 

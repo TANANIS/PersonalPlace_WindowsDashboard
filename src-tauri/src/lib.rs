@@ -165,6 +165,8 @@ struct CreateWidgetRequest {
     page_id: String,
     parent_group_id: Option<String>,
     widget_kind: String,
+    #[serde(default)]
+    todo_list_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -884,6 +886,7 @@ fn create_widget(
             &request.page_id,
             request.parent_group_id.as_deref(),
             &request.widget_kind,
+            request.todo_list_id.as_deref(),
         )
         .map_err(CommandError::storage)
 }
