@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CalendarDay, CalendarOccurrence, CalendarSource } from "../../platform/calendar";
-import { CalendarWorkspace } from "./CalendarWorkspace";
+import { CalendarSourceManagement, CalendarWorkspace } from "./CalendarWorkspace";
 
 const mocks = vi.hoisted(() => ({
   open: vi.fn(),
@@ -28,6 +28,7 @@ const source: CalendarSource = {
   originalPath: "C:\\Calendar\\work.ics",
   fingerprint: "abc",
 };
+const secondSource: CalendarSource = { ...source, id: "source-two", displayName: "personal.ics", calendarName: "個人" };
 
 const opaqueEvent: CalendarOccurrence = {
   occurrenceId: "event-one",
@@ -88,12 +89,12 @@ describe("CalendarWorkspace", () => {
     mocks.open.mockResolvedValue("C:\\Calendar\\work.ics");
     render(<CalendarWorkspace />);
 
-    expect(await screen.findByRole("heading", { name: "匯入第一個行事曆" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "還沒有行事曆" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "選擇 ICS 檔案" }));
 
-    await waitFor(() => expect(mocks.importCalendarIcs).toHaveBeenCalledWith("C:\\Calendar\\work.ics", undefined));
+    await waitFor(() => expect(mocks.importCalendarIcs).toHaveBeenCalledWith("C:\\Calendar\\work.ics"));
     expect(await screen.findByText(/已匯入 2 個事件/)).toBeInTheDocument();
-    expect(screen.getAllByText("工作").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "時間表" })).toBeInTheDocument();
   });
 
   it("renders busy semantics and opens a read-only plain-text event detail", async () => {
@@ -104,18 +105,52 @@ describe("CalendarWorkspace", () => {
     expect(screen.getByText("○ 不占用時間")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /設計檢查/ }));
 
-    expect(screen.getByRole("dialog", { name: "設計檢查" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "設計檢查" })).toBeInTheDocument();
     expect(screen.getByText("安全內容 <script>不執行</script>")).toBeInTheDocument();
     expect(container.querySelector("script")).toBeNull();
     expect(screen.getByText("是")).toBeInTheDocument();
+    expect(container.querySelector(".calendar-event-copy small")?.textContent).toContain("重複事件");
+    await user.click(screen.getByRole("button", { name: /參考行程/ }));
+    expect(screen.queryByText("重複：否")).not.toBeInTheDocument();
   });
 
-  it("reimports one selected source instead of replacing unrelated sources", async () => {
+  it("does not show an empty all-day card or a source name for one source", async () => {
+    render(<CalendarWorkspace />);
+    expect(await screen.findByRole("heading", { name: "時間表" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "全天" })).not.toBeInTheDocument();
+    expect(screen.queryByText("工作")).not.toBeInTheDocument();
+  });
+
+  it("reimports one selected source from Settings management", async () => {
     const user = userEvent.setup();
     mocks.open.mockResolvedValue("C:\\Calendar\\work-new.ics");
-    render(<CalendarWorkspace />);
+    render(<CalendarSourceManagement />);
 
     await user.click(await screen.findByRole("button", { name: "重新匯入" }));
     await waitFor(() => expect(mocks.importCalendarIcs).toHaveBeenCalledWith("C:\\Calendar\\work-new.ics", source.id));
+  });
+
+  it("does not show next-event content when browsing a past date", async () => {
+    const user = userEvent.setup();
+    render(<CalendarWorkspace />);
+    await screen.findByRole("heading", { name: "時間表" });
+    await user.click(screen.getByRole("button", { name: "前一天" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "下一個行程" })).not.toBeInTheDocument());
+  });
+
+  it("shows source metadata when more than one calendar is present", async () => {
+    mocks.listCalendarSources.mockResolvedValue([source, secondSource]);
+    render(<CalendarWorkspace />);
+    await screen.findByRole("heading", { name: "時間表" });
+    expect(screen.getAllByText("工作").length).toBeGreaterThan(0);
+  });
+
+  it("can import a new ICS from Settings when no source exists", async () => {
+    const user = userEvent.setup();
+    mocks.listCalendarSources.mockResolvedValue([]);
+    mocks.open.mockResolvedValue("C:\\Calendar\\first.ics");
+    render(<CalendarSourceManagement />);
+    await user.click(screen.getByRole("button", { name: "＋ 匯入 ICS" }));
+    await waitFor(() => expect(mocks.importCalendarIcs).toHaveBeenCalledWith("C:\\Calendar\\first.ics", undefined));
   });
 });
