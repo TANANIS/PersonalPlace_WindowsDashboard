@@ -1,0 +1,2 @@
+037c7e43e40a001912c2933fc7ee2c1d282ca3f1a269c119d1fc108eebe3bffb *Personal-Place-1.7.1-portable.exe
+4333c1dd00373f8dc2b66c18bfb37281b7e91ebd3b7ed75ae247e87019c94f32 *Personal-Place-1.7.1-setup.exe

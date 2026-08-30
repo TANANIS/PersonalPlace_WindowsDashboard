@@ -4,13 +4,13 @@ Personal Place 是 Windows 上、本機優先的個人數位首頁。你可以�
 
 ## 下載
 
-目前版本：**1.7.0**
+目前版本：**1.7.1**
 
-- [安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.7.0/releases/Personal-Place-1.7.0/Personal-Place-1.7.0-setup.exe)
-- [免安裝版 EXE（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.7.0/releases/Personal-Place-1.7.0/Personal-Place-1.7.0-portable.exe)
-- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.7.0/releases/Personal-Place-1.7.0/SHA256SUMS.txt)
+- [安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.7.1/releases/Personal-Place-1.7.1/Personal-Place-1.7.1-setup.exe)
+- [免安裝版 EXE（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.7.1/releases/Personal-Place-1.7.1/Personal-Place-1.7.1-portable.exe)
+- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.7.1/releases/Personal-Place-1.7.1/SHA256SUMS.txt)
 
-v1.7.0 的 installer 與免安裝版來自同一次 release build，NSIS 維持停用壓縮以降低 Windows Defender ML 誤判風險。產物未使用受信任的 Authenticode 憑證簽章，Windows 仍可能顯示 SmartScreen、無法驗證發行者或安全性情報警告；SHA-256 只用來驗證下載內容是否與本 repository 發布的檔案一致。
+v1.7.1 是因應 v1.7.0 installer 被 Windows Defender 機器學習誤判後重新封裝的 patch release；installer 與免安裝版來自同一次 release build，NSIS 維持停用壓縮。產物未使用受信任的 Authenticode 憑證簽章，Windows 仍可能顯示 SmartScreen、無法驗證發行者或安全性情報警告；SHA-256 只用來驗證下載內容是否與本 repository 發布的檔案一致。
 
 ## 1.7.0：Calendar Workspace 與架構基礎
 
