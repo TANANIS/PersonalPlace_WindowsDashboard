@@ -12,7 +12,9 @@
 
 ## 匯出
 
-設定中的「備份與還原」可匯出 `.personal-place`。它是版本化 ZIP 容器，包含 `manifest.json`，保存頁面、卡片、地方、Target、Note、最近狀態與 Launch Set；衍生縮圖不匯出。
+設定中的「備份與還原」可匯出 `.personal-place`。它是版本化 ZIP 容器，包含 `manifest.json`，保存頁面、卡片、地方、Target、Note、最近狀態、Launch Set、Calendar sources 與 normalized Calendar events；衍生縮圖不匯出。
+
+Calendar 只在使用者主動匯入或重新匯入 `.ics` 時更新。備份會包含 Calendar 事件內容、原始描述與來源檔案路徑；還原後不需要原 `.ics` 仍存在即可閱讀既有 agenda。
 
 SQLite 讀取採一致性 transaction，因此已提交但仍位於 WAL 的最新資料也會包含在匯出內容。
 

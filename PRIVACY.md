@@ -9,6 +9,7 @@ Personal Place 採本機優先設計。核心功能不需要帳號、登入、�
 - 不監控剪貼簿；只有你在新增介面主動貼上時才處理內容。
 - 不在背景掃描整台電腦、瀏覽器歷史或已開啟視窗。
 - 不自動上傳錯誤、資料庫或診斷資訊。
+- 不會替 Calendar 登入 Google、呼叫 Calendar API 或自動同步雲端資料。
 
 ## 何時可能連線
 
@@ -21,7 +22,7 @@ Personal Place 採本機優先設計。核心功能不需要帳號、登入、�
 
 ## 本機資料
 
-頁面、卡片、路徑、筆記與一次開啟設定保存在本機 SQLite。縮圖是可清除、可重建的本機衍生資料。`.personal-place` 備份可能含本機絕對路徑，應像其他私人檔案一樣妥善保管。
+頁面、卡片、路徑、筆記與一次開啟設定保存在本機 SQLite。使用者主動匯入的 Calendar source、normalized events、原始事件描述與來源檔案路徑也保存在同一個本機資料庫；Personal Place 不會持續監看來源檔案。縮圖是可清除、可重建的本機衍生資料。`.personal-place` 備份可能含本機絕對路徑與 Calendar 內容，應像其他私人檔案一樣妥善保管。
 
 ActivityWatch 活動資料不寫入 Personal Place 的資料庫，原始事件也不會納入 `.personal-place` 備份。既有的選用 App 使用時間追蹤仍是獨立功能。
 

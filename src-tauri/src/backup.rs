@@ -1,4 +1,5 @@
 use crate::{
+    calendar::{self, CalendarSource, StoredCalendarEvent},
     dashboard::{self, DashboardCard, DashboardState, Page},
     ingest,
     storage::WorkspaceStore,
@@ -15,8 +16,8 @@ use std::{
 };
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
-const FORMAT_VERSION: u32 = 2;
-const MAX_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
+const FORMAT_VERSION: u32 = 3;
+const MAX_MANIFEST_BYTES: u64 = 128 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,6 +40,10 @@ pub struct BackupManifest {
     pub todo_lists: Vec<TodoList>,
     #[serde(default)]
     pub todo_items: Vec<TodoItem>,
+    #[serde(default)]
+    pub calendar_sources: Vec<CalendarSource>,
+    #[serde(default)]
+    pub calendar_events: Vec<StoredCalendarEvent>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -54,6 +59,8 @@ pub struct BackupPreview {
     pub target_count: usize,
     pub todo_list_count: usize,
     pub todo_item_count: usize,
+    pub calendar_source_count: usize,
+    pub calendar_event_count: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -236,6 +243,7 @@ fn consistent_manifest(store: &WorkspaceStore) -> Result<BackupManifest, String>
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|error| format!("unable to collect todo item export: {error}"))?
     };
+    let (calendar_sources, calendar_events) = calendar::load_backup_data(&transaction)?;
     transaction
         .commit()
         .map_err(|error| format!("無法完成一致性備份快照：{error}"))?;
@@ -248,6 +256,8 @@ fn consistent_manifest(store: &WorkspaceStore) -> Result<BackupManifest, String>
         targets,
         todo_lists,
         todo_items,
+        calendar_sources,
+        calendar_events,
     })
 }
 
@@ -347,6 +357,36 @@ fn validate_manifest(manifest: &BackupManifest) -> Result<(), String> {
     if card_ids.iter().any(|id| page_ids.contains(id)) {
         return Err("頁面與卡片不可使用相同主鍵。".to_string());
     }
+    let source_ids = unique_ids(
+        manifest
+            .calendar_sources
+            .iter()
+            .map(|source| source.id.as_str()),
+        "Calendar source",
+    )?;
+    let _event_ids = unique_ids(
+        manifest
+            .calendar_events
+            .iter()
+            .map(|event| event.id.as_str()),
+        "Calendar event",
+    )?;
+    let mut calendar_identities = HashSet::new();
+    for event in &manifest.calendar_events {
+        if !source_ids.contains(event.source_id.as_str()) {
+            return Err(format!("Calendar event {} 指向不存在的 source。", event.id));
+        }
+        if !calendar_identities.insert((
+            event.source_id.as_str(),
+            event.uid.as_str(),
+            event.recurrence_id.as_str(),
+        )) {
+            return Err(format!(
+                "Calendar event {} 使用重複 recurrence identity。",
+                event.id
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -368,6 +408,11 @@ fn import_manifest(store: &WorkspaceStore, manifest: &BackupManifest) -> Result<
     let transaction = connection
         .transaction()
         .map_err(|error| format!("無法開始還原交易：{error}"))?;
+    calendar::restore_backup_data(
+        &transaction,
+        &manifest.calendar_sources,
+        &manifest.calendar_events,
+    )?;
     transaction
         .execute("DELETE FROM todo_items", [])
         .map_err(|error| format!("unable to clear todo items: {error}"))?;
@@ -452,6 +497,8 @@ fn preview_for(manifest: &BackupManifest) -> BackupPreview {
         target_count: manifest.targets.len(),
         todo_list_count: manifest.todo_lists.len(),
         todo_item_count: manifest.todo_items.len(),
+        calendar_source_count: manifest.calendar_sources.len(),
+        calendar_event_count: manifest.calendar_events.len(),
     }
 }
 
@@ -497,13 +544,56 @@ mod tests {
         source
             .update_note_text(&note_id, "備份內容")
             .expect("write note");
+        {
+            let mut connection = source.lock().expect("lock calendar source");
+            let transaction = connection.transaction().expect("calendar transaction");
+            let calendar_source = CalendarSource {
+                id: "calendar-source".to_string(),
+                display_name: "fixture.ics".to_string(),
+                source_type: "ics".to_string(),
+                calendar_name: "備份行事曆".to_string(),
+                timezone: "Asia/Taipei".to_string(),
+                imported_at: 1_700_000_000,
+                original_path: Some("C:\\Calendar\\fixture.ics".to_string()),
+                fingerprint: "fixture-fingerprint".to_string(),
+            };
+            let calendar_event = StoredCalendarEvent {
+                id: "calendar-event".to_string(),
+                source_id: calendar_source.id.clone(),
+                uid: "backup-event".to_string(),
+                recurrence_id: String::new(),
+                summary: "備份會議".to_string(),
+                description_raw: "本機內容".to_string(),
+                description_text: "本機內容".to_string(),
+                start_utc: Some(1_788_152_400),
+                end_utc: Some(1_788_156_000),
+                start_date: None,
+                end_date: None,
+                timezone: "Asia/Taipei".to_string(),
+                all_day: false,
+                transparency: "opaque".to_string(),
+                status: "confirmed".to_string(),
+                sequence: 0,
+                created_at: None,
+                last_modified: None,
+                recurrence_rule: None,
+                recurrence_set: None,
+                alarm_count: 0,
+                raw_ical: "BEGIN:VEVENT...END:VEVENT".to_string(),
+            };
+            calendar::restore_backup_data(&transaction, &[calendar_source], &[calendar_event])
+                .expect("seed calendar");
+            transaction.commit().expect("commit calendar");
+        }
         let root = temporary_root("round-trip");
         fs::create_dir_all(&root).expect("create root");
         let backup_path = root.join("my-place.personal-place");
         let exported = export_backup(&source, &backup_path).expect("export");
-        assert_eq!(exported.preview.format_version, 2);
+        assert_eq!(exported.preview.format_version, 3);
         assert_eq!(exported.preview.page_count, 1);
         assert_eq!(exported.preview.note_count, 1);
+        assert_eq!(exported.preview.calendar_source_count, 1);
+        assert_eq!(exported.preview.calendar_event_count, 1);
         assert_eq!(inspect_backup(&backup_path).unwrap(), exported.preview);
 
         let destination = initialized_store();
@@ -514,6 +604,16 @@ mod tests {
             source.get_dashboard().expect("source dashboard")
         );
         assert_ne!(restored.dashboard, dashboard);
+        assert_eq!(calendar::list_sources(&destination).unwrap().len(), 1);
+        let calendar_day = calendar::list_day(
+            &destination,
+            &crate::calendar::CalendarDayRequest {
+                date: "2026-08-31".to_string(),
+                timezone: "Asia/Taipei".to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(calendar_day.timed[0].summary, "備份會議");
         let safety = PathBuf::from(restored.safety_backup_path);
         assert!(safety.exists());
         let safety_db = Connection::open(safety).expect("open safety backup");

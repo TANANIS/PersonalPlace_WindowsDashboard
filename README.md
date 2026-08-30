@@ -4,13 +4,21 @@ Personal Place 是 Windows 上、本機優先的個人數位首頁。你可以�
 
 ## 下載
 
-目前版本：**1.6.1**
+目前版本：**1.7.0**
 
-- [安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.6.1/releases/Personal-Place-1.6.1/Personal-Place-1.6.1-setup.exe)
-- [免安裝版 EXE（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/heads/master/releases/Personal-Place-1.6.1/Personal-Place-1.6.1-portable.exe)
-- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.6.1/releases/Personal-Place-1.6.1/SHA256SUMS.txt)
+- [安裝版（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.7.0/releases/Personal-Place-1.7.0/Personal-Place-1.7.0-setup.exe)
+- [免安裝版 EXE（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.7.0/releases/Personal-Place-1.7.0/Personal-Place-1.7.0-portable.exe)
+- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.7.0/releases/Personal-Place-1.7.0/SHA256SUMS.txt)
 
-v1.6.1 的 installer 由本次 source/build 產生並停用 NSIS 壓縮；另提供同一個 v1.6.1 executable 的免安裝 EXE。所有產物目前未簽章，Windows 仍可能顯示 SmartScreen、無法驗證發行者或安全性情報警告。
+v1.7.0 的 installer 與免安裝版來自同一次 release build，NSIS 維持停用壓縮以降低 Windows Defender ML 誤判風險。產物未使用受信任的 Authenticode 憑證簽章，Windows 仍可能顯示 SmartScreen、無法驗證發行者或安全性情報警告；SHA-256 只用來驗證下載內容是否與本 repository 發布的檔案一致。
+
+## 1.7.0：Calendar Workspace 與架構基礎
+
+- 新增系統級 Calendar 工作區，可匯入或重新匯入本機 `.ics`，並以 agenda 閱讀指定日期的全天與定時事件。
+- 支援 UTC、IANA `TZID`、all-day、RRULE、EXDATE、RECURRENCE-ID override 與 cancelled occurrence；重複事件只在查詢日期時展開。
+- `OPAQUE`／`TRANSPARENT` 會顯示為「占用時間」／「不占用時間」，事件描述只以安全純文字呈現。
+- Calendar source 與 normalized events 保存在本機 SQLite，並納入 `.personal-place` 備份、還原與 schema migration。
+- App shell、system workspace registry 與 Tauri bridge 已建立 feature boundaries，未來 Today 可以直接查詢 Calendar domain，不需要解析 ICS。
 
 ## 1.5.0：ActivityWatch 活動工作區
 
@@ -53,6 +61,7 @@ Personal Place 只透過 Tauri 後端連線固定的 `http://127.0.0.1:5600`，�
 - Place 可記錄最近進度，並依序開啟選定項目。
 - 純文字筆記採閱讀優先的內頁，需要時再進入編輯。
 - Todo、Focus Timer 與使用時間提供卡片摘要與完整工作區。
+- 系統級 Calendar 工作區可匯入本機 `.ics`，閱讀每日 agenda、下一個占用時間事件與事件詳細內容。
 - 系統級「活動」工作區可選擇性讀取本機 ActivityWatch，查看有效使用時間、App／網站排行與最近活動。
 - `Ctrl + K` 可跨 Page、Place、筆記與卡片搜尋。
 - 支援整理模式、多選、拖曳排序、鍵盤移動與復原。
@@ -64,6 +73,7 @@ Personal Place 只透過 Tauri 後端連線固定的 `http://127.0.0.1:5600`，�
 
 - 不需要帳號，核心功能可離線使用。
 - Dashboard 與工具資料保存在使用者的 Windows 本機資料目錄。
+- Calendar 只讀取使用者主動選擇的本機 `.ics`；不登入 Google、不使用 Calendar API，也不做雲端同步。
 - App 使用時間追蹤預設關閉；啟用後只記錄 App 身分與時間，不讀取視窗標題、網址、文件名稱、鍵鼠內容或畫面。
 - 「活動」只連線固定的本機 ActivityWatch 服務並即時彙整，不把 ActivityWatch 原始事件複製到 Personal Place。
 - 匯出備份可能包含本機絕對路徑，請妥善保存。

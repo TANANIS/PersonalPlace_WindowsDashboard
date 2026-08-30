@@ -8,7 +8,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -608,6 +608,63 @@ fn configure_and_migrate(connection: &Connection) -> Result<(), String> {
         if let Err(error) = migration {
             let _ = connection.execute_batch("ROLLBACK;");
             return Err(format!("無法將 Personal Place 升級為 schema v4：{error}"));
+        }
+    }
+
+    let version_after_v4: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|error| format!("無法確認 schema v4：{error}"))?;
+    if version_after_v4 == 4 {
+        let migration = connection.execute_batch(
+            "BEGIN IMMEDIATE;
+             CREATE TABLE calendar_sources(
+                 id TEXT PRIMARY KEY,
+                 display_name TEXT NOT NULL,
+                 source_type TEXT NOT NULL CHECK(source_type = 'ics'),
+                 calendar_name TEXT NOT NULL,
+                 timezone TEXT NOT NULL,
+                 imported_at INTEGER NOT NULL,
+                 original_path TEXT,
+                 fingerprint TEXT NOT NULL
+             );
+             CREATE TABLE calendar_events(
+                 id TEXT PRIMARY KEY,
+                 source_id TEXT NOT NULL REFERENCES calendar_sources(id) ON DELETE CASCADE,
+                 uid TEXT NOT NULL,
+                 recurrence_id TEXT NOT NULL DEFAULT '',
+                 summary TEXT NOT NULL,
+                 description_raw TEXT NOT NULL DEFAULT '',
+                 description_text TEXT NOT NULL DEFAULT '',
+                 start_utc INTEGER,
+                 end_utc INTEGER,
+                 start_date TEXT,
+                 end_date TEXT,
+                 timezone TEXT NOT NULL,
+                 all_day INTEGER NOT NULL CHECK(all_day IN (0, 1)),
+                 transparency TEXT NOT NULL CHECK(transparency IN ('opaque', 'transparent')),
+                 status TEXT NOT NULL,
+                 sequence INTEGER NOT NULL DEFAULT 0,
+                 created_at INTEGER,
+                 last_modified INTEGER,
+                 recurrence_rule TEXT,
+                 recurrence_set TEXT,
+                 alarm_count INTEGER NOT NULL DEFAULT 0,
+                 raw_ical TEXT NOT NULL,
+                 CHECK(
+                     (all_day = 1 AND start_date IS NOT NULL AND end_date IS NOT NULL) OR
+                     (all_day = 0 AND start_utc IS NOT NULL AND end_utc IS NOT NULL)
+                 ),
+                 UNIQUE(source_id, uid, recurrence_id)
+             );
+             CREATE INDEX calendar_events_source_uid ON calendar_events(source_id, uid);
+             CREATE INDEX calendar_events_timed_range ON calendar_events(start_utc, end_utc);
+             CREATE INDEX calendar_events_date_range ON calendar_events(start_date, end_date);
+             PRAGMA user_version = 5;
+             COMMIT;",
+        );
+        if let Err(error) = migration {
+            let _ = connection.execute_batch("ROLLBACK;");
+            return Err(format!("無法將 Personal Place 升級為 schema v5：{error}"));
         }
     }
 
@@ -1323,6 +1380,74 @@ mod tests {
             .expect("inspect v2 table");
         assert!(!has_card_type);
         drop(connection);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn schema_v4_migrates_to_calendar_schema_without_changing_existing_data() {
+        let root = std::env::temp_dir().join(format!(
+            "personal-place-v4-v5-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create fixture root");
+        let database = root.join("personal-place.db");
+        let store = WorkspaceStore::open(&database).expect("create current database");
+        store
+            .initialize(
+                None,
+                &HashMap::new(),
+                Path::new("missing-registry"),
+                &root.join("legacy"),
+            )
+            .expect("initialize fixture");
+        let (_, note_id) = store.create_note("home", None).expect("create note");
+        store
+            .update_note_text(&note_id, "schema v4 preserved")
+            .expect("write note");
+        {
+            let connection = store.lock().expect("lock fixture");
+            connection
+                .execute_batch(
+                    "DROP TABLE calendar_events;
+                     DROP TABLE calendar_sources;
+                     PRAGMA user_version = 4;",
+                )
+                .expect("downgrade fixture schema marker");
+        }
+        drop(store);
+
+        let migrated = WorkspaceStore::open(&database).expect("migrate v4 fixture");
+        let dashboard = migrated.get_dashboard().expect("load dashboard");
+        assert!(dashboard
+            .cards
+            .iter()
+            .any(|card| card.id == note_id && card.note_text == "schema v4 preserved"));
+        let connection = migrated.lock().expect("lock migrated fixture");
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 5);
+        let calendar_tables: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name IN ('calendar_sources', 'calendar_events')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(calendar_tables, 2);
+        drop(connection);
+        drop(migrated);
+
+        let migration_backups = fs::read_dir(root.join("backups").join("schema-migrations"))
+            .expect("read migration backups")
+            .filter_map(Result::ok)
+            .count();
+        assert_eq!(migration_backups, 1);
         let _ = fs::remove_dir_all(root);
     }
 

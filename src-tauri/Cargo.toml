@@ -1,6 +1,6 @@
 [package]
 name = "personal-workspace"
-version = "1.6.1"
+version = "1.7.0"
 description = "Local-first Windows personal dashboard"
 authors = ["JSrad"]
 edition = "2021"
@@ -15,8 +15,10 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+chrono-tz = "0.10"
 crossbeam-channel = "0.5"
 image = { version = "0.25", default-features = false, features = ["png"] }
+icalendar = { version = "0.17.13", features = ["parser", "recurrence"] }
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }

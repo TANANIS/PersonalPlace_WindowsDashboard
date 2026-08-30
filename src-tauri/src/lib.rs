@@ -14,6 +14,7 @@ use tauri_plugin_notification::NotificationExt;
 
 mod activitywatch;
 mod backup;
+mod calendar;
 mod dashboard;
 mod focus;
 mod ingest;
@@ -1373,6 +1374,46 @@ async fn get_activity_detail(
     .map_err(|error| format!("無法讀取活動詳細資料：{error}"))?
 }
 
+#[tauri::command]
+fn list_calendar_sources(
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<Vec<calendar::CalendarSource>, CommandError> {
+    calendar::list_sources(&runtime.store).map_err(CommandError::storage)
+}
+
+#[tauri::command]
+async fn import_calendar_ics(
+    request: calendar::ImportCalendarRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<calendar::CalendarImportSummary, CommandError> {
+    let store = Arc::clone(&runtime.store);
+    tauri::async_runtime::spawn_blocking(move || calendar::import_ics(&store, &request))
+        .await
+        .map_err(|error| {
+            CommandError::new(
+                "backgroundFailed",
+                format!("Calendar 匯入背景工作失敗：{error}"),
+            )
+        })?
+        .map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn list_calendar_day(
+    request: calendar::CalendarDayRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<calendar::CalendarDay, CommandError> {
+    calendar::list_day(&runtime.store, &request).map_err(CommandError::storage)
+}
+
+#[tauri::command]
+fn get_next_calendar_event(
+    request: calendar::NextCalendarEventRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<Option<calendar::CalendarOccurrence>, CommandError> {
+    calendar::next_blocking_event(&runtime.store, &request).map_err(CommandError::storage)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1594,6 +1635,10 @@ pub fn run() {
             get_activity_summary,
             get_activity_timeline,
             get_activity_detail,
+            list_calendar_sources,
+            import_calendar_ics,
+            list_calendar_day,
+            get_next_calendar_event,
             launch_card,
             get_item_preview,
             get_preview_cache_info,

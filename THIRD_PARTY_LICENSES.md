@@ -2,7 +2,7 @@
 
 Generated from locked Cargo metadata and installed Node packages. Regenerate from a clean dependency install before publication and distribute the applicable license texts with the installer.
 
-Generated at (UTC): 2026-08-10 19:07:50
+Generated at (UTC): 2026-08-31
 
 | Ecosystem | Package | Version | Declared license |
 |---|---|---:|---|
@@ -204,6 +204,7 @@ Generated at (UTC): 2026-08-10 19:07:50
 | Rust | cfg-if | 1.0.4 | MIT OR Apache-2.0 |
 | Rust | chacha20 | 0.10.1 | MIT OR Apache-2.0 |
 | Rust | chrono | 0.4.45 | MIT OR Apache-2.0 |
+| Rust | chrono-tz | 0.10.4 | MIT OR Apache-2.0 |
 | Rust | combine | 4.6.7 | MIT |
 | Rust | cookie | 0.18.2 | MIT OR Apache-2.0 |
 | Rust | core-foundation | 0.10.1 | MIT OR Apache-2.0 |
@@ -307,6 +308,7 @@ Generated at (UTC): 2026-08-10 19:07:50
 | Rust | iana-time-zone | 0.1.65 | MIT OR Apache-2.0 |
 | Rust | iana-time-zone-haiku | 0.1.2 | MIT OR Apache-2.0 |
 | Rust | ico | 0.5.0 | MIT |
+| Rust | icalendar | 0.17.13 | MIT/Apache-2.0 |
 | Rust | icu_collections | 2.2.0 | Unicode-3.0 |
 | Rust | icu_locale_core | 2.2.0 | Unicode-3.0 |
 | Rust | icu_normalizer | 2.2.0 | Unicode-3.0 |
@@ -322,6 +324,7 @@ Generated at (UTC): 2026-08-10 19:07:50
 | Rust | indexmap | 2.14.0 | Apache-2.0 OR MIT |
 | Rust | infer | 0.19.0 | MIT |
 | Rust | ipnet | 2.12.1 | MIT OR Apache-2.0 |
+| Rust | iso8601 | 0.6.5 | MIT |
 | Rust | is-docker | 0.2.0 | MIT |
 | Rust | is-wsl | 0.4.0 | MIT |
 | Rust | itoa | 1.0.18 | MIT OR Apache-2.0 |
@@ -364,6 +367,8 @@ Generated at (UTC): 2026-08-10 19:07:50
 | Rust | new_debug_unreachable | 1.0.6 | MIT |
 | Rust | num_enum | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
 | Rust | num_enum_derive | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
+| Rust | nom | 8.0.0 | MIT |
+| Rust | nom-language | 0.1.0 | MIT |
 | Rust | num-conv | 0.2.2 | MIT OR Apache-2.0 |
 | Rust | num-traits | 0.2.19 | MIT OR Apache-2.0 |
 | Rust | objc2 | 0.6.4 | MIT |
@@ -392,10 +397,12 @@ Generated at (UTC): 2026-08-10 19:07:50
 | Rust | parking_lot_core | 0.9.12 | MIT OR Apache-2.0 |
 | Rust | percent-encoding | 2.3.2 | MIT OR Apache-2.0 |
 | Rust | phf | 0.13.1 | MIT |
+| Rust | phf | 0.12.1 | MIT |
 | Rust | phf_codegen | 0.13.1 | MIT |
 | Rust | phf_generator | 0.13.1 | MIT |
 | Rust | phf_macros | 0.13.1 | MIT |
 | Rust | phf_shared | 0.13.1 | MIT |
+| Rust | phf_shared | 0.12.1 | MIT |
 | Rust | pin-project-lite | 0.2.17 | Apache-2.0 OR MIT |
 | Rust | pkg-config | 0.3.33 | MIT OR Apache-2.0 |
 | Rust | plist | 1.10.0 | MIT |
@@ -436,6 +443,7 @@ Generated at (UTC): 2026-08-10 19:07:50
 | Rust | rfd | 0.16.0 | MIT |
 | Rust | ring | 0.17.14 | Apache-2.0 AND ISC |
 | Rust | rusqlite | 0.40.2 | MIT |
+| Rust | rrule | 0.14.0 | MIT OR Apache-2.0 |
 | Rust | rustc_version | 0.4.1 | MIT OR Apache-2.0 |
 | Rust | rustc-hash | 2.1.3 | Apache-2.0 OR MIT |
 | Rust | rustls | 0.23.43 | Apache-2.0 OR ISC OR MIT |
