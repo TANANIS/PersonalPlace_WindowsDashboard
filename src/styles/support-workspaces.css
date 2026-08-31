@@ -1,0 +1,11 @@
+.calendar-workspace, .activity-workspace, .settings-workspace { color: var(--text-primary); }
+.calendar-workspace, .activity-workspace { width: min(var(--content-wide), 100%); margin: 0 auto; }
+.calendar-workspace button, .activity-workspace button { border-radius: var(--radius-control); }
+.calendar-next, .activity-total-card { border-color: var(--border-soft); border-radius: var(--radius-surface); background: var(--surface-1); box-shadow: none; }
+.activity-total-icon, .activity-rank-icon { box-shadow: none; }
+.activity-ranking-grid, .activity-metric-grid { gap: var(--space-4); }
+.calendar-agenda > section, .calendar-sources > div, .calendar-settings { border-color: var(--border-soft); border-radius: var(--radius-surface); background: var(--surface-1); }
+.calendar-empty, .calendar-state { min-height: 260px; border-color: var(--border-soft); border-radius: var(--radius-surface); background: transparent; }
+.settings-section, .settings-row, .settings-theme, .backup-actions-grid article { border-color: var(--border-soft); border-radius: var(--radius-surface); background: var(--surface-1); }
+.settings-row-icon { box-shadow: none; }
+@media (max-width: 700px) { .calendar-workspace, .activity-workspace { padding-inline: var(--space-4); } }

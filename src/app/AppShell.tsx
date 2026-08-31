@@ -156,6 +156,7 @@ export function AppShell() {
   const [undoMessage, setUndoMessage] = useState<string | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
   const [view, setView] = useState<AppView>(() => !isTauriRuntime() && !demoMode ? systemWorkspaceView("today") : dashboardView(browserInitial.pages[0]?.id ?? "home"));
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const [overlay, setOverlay] = useState<OverlayState>(null);
   const [todoEntryMode, setTodoEntryMode] = useState<"browse" | "create">("browse");
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
@@ -305,6 +306,15 @@ export function AppShell() {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    if (!navigationOpen || view.kind === "focusMode") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNavigationOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [navigationOpen, view.kind]);
+
 
   const activePage =
     state.pages.find((page) => page.id === activePageId) ??
@@ -333,11 +343,13 @@ export function AppShell() {
   }
 
   function navigateToAppView(nextView: AppView) {
+    setNavigationOpen(false);
     setView(nextView);
     scheduleMainScroll(0);
   }
 
   function showDashboard(pageId: string, resetSearch = true) {
+    setNavigationOpen(false);
     setActivePageId(pageId);
     setView(dashboardView(pageId));
     setSelectedIds(new Set());
@@ -351,6 +363,7 @@ export function AppShell() {
   }
 
   function showSystemWorkspace(workspaceId: string, todoMode: "browse" | "create" = "browse") {
+    setNavigationOpen(false);
     setView(systemWorkspaceView(workspaceId));
     setTodoEntryMode(workspaceId === "todo" ? todoMode : "browse");
     setEditing(false);
@@ -1016,7 +1029,10 @@ export function AppShell() {
 
   return (
     <div className={`app-shell${view.kind === "focusMode" ? " is-focus-mode" : ""}`}>
-      {view.kind !== "focusMode" && <aside className="sidebar" aria-label="主要導覽">
+      {view.kind !== "focusMode" && <>
+        <button type="button" className="navigation-toggle" aria-expanded={navigationOpen} aria-controls="primary-navigation" onClick={() => setNavigationOpen(true)}><span aria-hidden="true">☰</span>導覽</button>
+        {navigationOpen && <button type="button" className="navigation-backdrop" aria-label="關閉導覽" onClick={() => setNavigationOpen(false)} />}
+        <aside id="primary-navigation" className={`sidebar${navigationOpen ? " is-open" : ""}`} aria-label="主要導覽">
         <div className="brand" aria-label={zhTW.brand.name}><span className="brand-mark">{zhTW.brand.mark}</span><strong>Personal Place</strong></div>
         <nav className="workspace-list">
           {getSystemWorkspaces().filter((workspace) => workspace.navigationGroup === "core").map((workspace) => {
@@ -1033,8 +1049,9 @@ export function AppShell() {
             return <button key={workspace.id} className={`workspace-button${active ? " is-active" : ""}`} type="button" aria-current={active ? "page" : undefined} onClick={() => showSystemWorkspace(workspace.id)}><span aria-hidden="true">{workspace.icon}</span><small>{workspace.title}</small></button>;
           })}
         </nav>
-        <div className="sidebar-footer-actions"><button className="workspace-button settings-button" onClick={() => setOverlay({ kind: "settings" })} title="設定"><span aria-hidden="true">⚙</span><small>設定</small></button></div>
-      </aside>}
+        <div className="sidebar-footer-actions"><button className="workspace-button settings-button" onClick={() => { setNavigationOpen(false); setOverlay({ kind: "settings" }); }} title="設定"><span aria-hidden="true">⚙</span><small>設定</small></button></div>
+      </aside>
+      </>}
 
       <main ref={mainContentRef} className={`main-content${view.kind !== "dashboard" ? " is-workspace-view" : ""}${openGroup ? " is-place-detail" : ""}`}>
         {view.kind === "focusMode" ? (

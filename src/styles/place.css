@@ -1,4 +1,4 @@
-.place-detail { padding-top: 38px; }
+.place-detail { width: min(var(--content-wide), 100%); padding-top: var(--space-7); }
 .place-detail-header { align-items: flex-end; }
 .place-detail-header h1 { margin-top: 8px; }
 .place-detail-actions { align-items: center; }
