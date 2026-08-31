@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { listCalendarDay, listCalendarSources, type CalendarOccurrence } from "../../platform/calendar";
 import { getTodoOverview, setTodoCompleted, setTodoPlannedFor, type TodoItem, type TodoList } from "../../platform/todo";
 import { getDashboard, launchGroup } from "../../platform/dashboard";
@@ -26,25 +26,19 @@ function todayTodoSections(items: TodoItem[], lists: TodoList[], today: string, 
 function NextSection({ event, now, loading, error }: { event: CalendarOccurrence | null; now: number; loading: boolean; error: boolean }) { return <section className="today-next" aria-labelledby="today-next-title"><header><h2 id="today-next-title">接下來</h2></header>{loading ? <p className="today-muted today-loading">載入中…</p> : error ? <p className="today-inline-error">接下來暫時無法讀取</p> : !event ? <p className="today-muted">今天沒有固定行程</p> : <div className="today-next-event"><strong>{event.startUtc === null ? "" : timeLabel(event.startUtc)}</strong><div><h3>{event.summary || "（無標題）"}</h3><p>{event.startUtc !== null && event.endUtc !== null && now >= event.startUtc && now < event.endUtc ? "進行中" : durationUntil(event.startUtc ?? now, now)}{event.endUtc !== null && now >= event.startUtc! ? ` · ${timeLabel(event.endUtc)} 結束` : ""}</p></div></div>}</section>; }
 
 export interface TodayWorkspaceProps {
-  focusState?: FocusState | null;
-  focusReady?: boolean;
-  focusError?: string | null;
-  onStartFocus?: (request: StartFocusRequest) => Promise<void>;
+  focusState: FocusState | null;
+  focusReady: boolean;
+  focusError: string | null;
+  onStartFocus: (request: StartFocusRequest) => Promise<void>;
   onReturnToFocus?: () => void;
 }
 
-export function TodayWorkspace({ focusState: providedFocus, focusReady: providedReady, focusError: providedError, onStartFocus: providedStart, onReturnToFocus }: TodayWorkspaceProps = {}) {
-  const fallbackFocus = useFocusController();
-  const focus = providedFocus === undefined ? fallbackFocus.state : providedFocus;
-  const focusLoading = providedReady === undefined ? !fallbackFocus.ready : !providedReady;
-  const focusError = providedError === undefined ? (fallbackFocus.error ? "正在做暫時無法讀取" : null) : providedError;
-  const usesExternalFocus = providedFocus !== undefined || providedStart !== undefined || providedReady !== undefined;
-  const startFocusForToday = providedStart ?? (async (request: StartFocusRequest) => { await fallbackFocus.start(request); });
+function ControlledTodayWorkspace({ focusState: focus, focusReady, focusError, onStartFocus, onReturnToFocus }: TodayWorkspaceProps) {
+  const focusLoading = !focusReady;
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const [event, setEvent] = useState<CalendarOccurrence | null>(null); const [calendarLoading, setCalendarLoading] = useState(true); const [calendarError, setCalendarError] = useState(false);
   const [todos, setTodos] = useState<TodoItem[]>([]); const [todoLists, setTodoLists] = useState<TodoList[]>([]); const [todoLoading, setTodoLoading] = useState(true); const [todoError, setTodoError] = useState(false); const [todoMutationError, setTodoMutationError] = useState<string | null>(null); const [todoBusy, setTodoBusy] = useState<string | null>(null);
   const [dashboardCards, setDashboardCards] = useState<DashboardCard[]>([]); const [candidate, setCandidate] = useState<DashboardCard | null>(null); const [candidateLaunchable, setCandidateLaunchable] = useState(false); const [launchableCount, setLaunchableCount] = useState(0); const [dashboardLoading, setDashboardLoading] = useState(true); const [dashboardError, setDashboardError] = useState(false); const [launchBusy, setLaunchBusy] = useState(false); const [launchFeedback, setLaunchFeedback] = useState<string | null>(null);
-  const [focusBusy, setFocusBusy] = useState(false);
   const today = useMemo(() => localDateKey(new Date(now * 1000)), [now]); const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
   useEffect(() => { const timer = window.setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1_000); return () => window.clearInterval(timer); }, []);
   const loadCalendar = useCallback(async () => { setCalendarLoading(true); try { setCalendarError(false); const sources = await listCalendarSources(); if (sources.length === 0) { setEvent(null); return; } setEvent((await listCalendarDay(today, timezone)).nextBlocking); } catch { setCalendarError(true); setEvent(null); } finally { setCalendarLoading(false); } }, [today, timezone]);
@@ -56,19 +50,29 @@ export function TodayWorkspace({ focusState: providedFocus, focusReady: provided
   const planTodo = async (item: TodoItem, plannedFor: string | null) => { setTodoBusy(item.id); setTodoMutationError(null); try { updateTodoState(await setTodoPlannedFor(item.id, plannedFor)); } catch { setTodoMutationError("安排日期無法更新，請稍後再試"); } finally { setTodoBusy(null); } };
   const continueWork = async () => { if (!candidate || !candidateLaunchable) return; setLaunchBusy(true); setLaunchFeedback(null); try { const result = await launchGroup(candidate.id); const success = result.items.filter((item) => item.status === "success").length; const failed = result.items.length - success; setLaunchFeedback(success > 0 ? (failed > 0 ? `已開啟 ${success} 個項目 · ${failed} 個無法開啟` : `已開啟 ${success} 個工作項目`) : "目前無法開啟這個地方"); if (success > 0) await loadDashboard(); } catch { setLaunchFeedback("目前無法開啟這個地方"); } finally { setLaunchBusy(false); } };
   const sections = useMemo(() => todayTodoSections(todos, todoLists, today, new Date(now * 1000)), [now, today, todoLists, todos]); const activeFocus = focus?.status === "running" || focus?.status === "paused"; const focusContext = focus && resolveFocusContext(focus, todos, dashboardCards);
-  const runFocusAction = async (action: () => Promise<FocusState>) => { setFocusBusy(true); try { await action(); } catch { /* controller owns the error */ } finally { setFocusBusy(false); } };
-  const beginFocus = (request: StartFocusRequest) => { if (activeFocus || focusBusy) return; void startFocusForToday(request); };
+  const beginFocus = (request: StartFocusRequest) => { if (activeFocus) return; void onStartFocus(request); };
   const todoContext = (todo: TodoItem) => { const list = todoLists.find((entry) => entry.id === todo.listId)?.title; const parent = todo.parentId ? todos.find((entry) => entry.id === todo.parentId)?.title : null; return [list, parent].filter(Boolean).join(" · "); };
-  const renderTodos = (items: TodoItem[], action: "remove" | "plan") => <ul className="today-todos">{items.map((todo) => <li key={todo.id} className={todoBusy === todo.id ? "is-busy" : undefined}><label><input type="checkbox" checked={false} disabled={todoBusy === todo.id} onChange={() => void toggleTodo(todo)} /><span><strong>{todo.title}</strong><small>{todoContext(todo)}</small></span></label><div className="today-todo-actions">{action === "remove" ? <button type="button" disabled={todoBusy === todo.id} onClick={() => void planTodo(todo, null)}>移出今天</button> : <button type="button" disabled={todoBusy === todo.id} onClick={() => void planTodo(todo, today)}>排到今天</button>}<button type="button" disabled={activeFocus || focusBusy} onClick={() => beginFocus({ phase: "focus", linkedTodoId: todo.id, linkedGroupId: null })}>開始專注</button></div>{todoBusy === todo.id && <small>處理中…</small>}</li>)}</ul>;
+  const renderTodos = (items: TodoItem[], action: "remove" | "plan") => <ul className="today-todos">{items.map((todo) => <li key={todo.id} className={todoBusy === todo.id ? "is-busy" : undefined}><label><input type="checkbox" checked={false} disabled={todoBusy === todo.id} onChange={() => void toggleTodo(todo)} /><span><strong>{todo.title}</strong><small>{todoContext(todo)}</small></span></label><div className="today-todo-actions">{action === "remove" ? <button type="button" disabled={todoBusy === todo.id} onClick={() => void planTodo(todo, null)}>移出今天</button> : <button type="button" disabled={todoBusy === todo.id} onClick={() => void planTodo(todo, today)}>排到今天</button>}<button type="button" disabled={activeFocus} onClick={() => beginFocus({ phase: "focus", linkedTodoId: todo.id, linkedGroupId: null })}>開始專注</button></div>{todoBusy === todo.id && <small>處理中…</small>}</li>)}</ul>;
 
   return <main className="today-workspace"><header className="today-heading"><h1>今天</h1><p>{dateLabel(new Date(now * 1000))}</p></header><div className="today-sections">
     {!focusLoading && focusError && !focus && <p className="today-inline-error">{focusError}</p>}
-    {activeFocus && focus && focusContext && <section className="today-focus-section" aria-labelledby="today-focus-title"><header><h2 id="today-focus-title">正在做</h2></header><div className="today-focus-content"><div><small>{focusContext.kind}</small><h3>{focusContext.title}</h3><p className="today-focus-time">{focus.status === "paused" ? `已暫停 · ${formatFocusRemaining(focusRemainingSeconds(focus, now))}` : formatFocusRemaining(focusRemainingSeconds(focus, now))}</p></div><div className="today-focus-actions">{usesExternalFocus ? <button type="button" disabled={focusBusy} onClick={onReturnToFocus}>回到專注</button> : <>{focus.status === "paused" ? <button type="button" disabled={focusBusy} onClick={() => void runFocusAction(() => fallbackFocus.resume())}>繼續</button> : <button type="button" disabled={focusBusy} onClick={() => void runFocusAction(() => fallbackFocus.pause())}>暫停</button>}<button type="button" disabled={focusBusy} onClick={() => void runFocusAction(() => fallbackFocus.stop("stopped"))}>結束</button></>}</div></div>{focusError && <p className="today-inline-error">{focusError}</p>}</section>}
+    {activeFocus && focus && focusContext && <section className="today-focus-section" aria-labelledby="today-focus-title"><header><h2 id="today-focus-title">正在做</h2></header><div className="today-focus-content"><div><small>{focusContext.kind}</small><h3>{focusContext.title}</h3><p className="today-focus-time">{focus.status === "paused" ? `已暫停 · ${formatFocusRemaining(focusRemainingSeconds(focus, now))}` : formatFocusRemaining(focusRemainingSeconds(focus, now))}</p></div><div className="today-focus-actions"><button type="button" onClick={onReturnToFocus}>回到專注</button></div></div>{focusError && <p className="today-inline-error">{focusError}</p>}</section>}
     <NextSection event={event} now={now} loading={calendarLoading} error={calendarError} />
     <div className={`today-main-grid${candidate ? " has-continue" : ""}`}><section className="today-todo-section" aria-labelledby="today-todos-title"><header><h2 id="today-todos-title">今天安排</h2></header>{todoLoading ? <p className="today-muted today-loading">載入中…</p> : todoError ? <p className="today-inline-error">待辦暫時無法讀取</p> : <>{sections.planned.length === 0 ? <p className="today-muted">今天還沒安排待辦</p> : renderTodos(sections.planned, "remove")}{sections.due.length > 0 && <section className="today-attention-section" aria-labelledby="today-due-title"><h3 id="today-due-title">今天到期</h3>{renderTodos(sections.due, "plan")}</section>}{sections.overdue.length > 0 && <section className="today-attention-section" aria-labelledby="today-overdue-title"><h3 id="today-overdue-title">逾期</h3>{renderTodos(sections.overdue, "plan")}</section>}{todoMutationError && <p className="today-inline-error" role="alert">{todoMutationError}</p>}</>}</section>
-      {dashboardLoading ? <p className="today-muted today-loading today-dashboard-loading">載入最近進度…</p> : dashboardError ? <p className="today-inline-error today-dashboard-error">最近進度暫時無法讀取</p> : candidate && <section className="today-continue-section" aria-labelledby="today-continue-title"><header><h2 id="today-continue-title">繼續</h2></header><div className="today-continue"><div><small className="today-resume-label">接續點</small><h3>{candidate.title}</h3><p className="today-resume-note">{candidate.resumeNote}</p></div><div className="today-continue-actions">{candidateLaunchable && <button type="button" className="primary-button" disabled={launchBusy} onClick={() => void continueWork()}>{launchBusy ? "啟動中…" : `開啟這個地方 (${launchableCount})`}</button>}<button type="button" disabled={activeFocus || focusBusy} onClick={() => beginFocus({ phase: "focus", linkedTodoId: null, linkedGroupId: candidate.id })}>開始專注</button></div>{launchFeedback && <small className={`today-launch-feedback${launchFeedback.startsWith("目前無法") ? " is-error" : ""}`} role="status">{launchFeedback}</small>}</div></section>}
+      {dashboardLoading ? <p className="today-muted today-loading today-dashboard-loading">載入最近進度…</p> : dashboardError ? <p className="today-inline-error today-dashboard-error">最近進度暫時無法讀取</p> : candidate && <section className="today-continue-section" aria-labelledby="today-continue-title"><header><h2 id="today-continue-title">繼續</h2></header><div className="today-continue"><div><small className="today-resume-label">接續點</small><h3>{candidate.title}</h3><p className="today-resume-note">{candidate.resumeNote}</p></div><div className="today-continue-actions">{candidateLaunchable && <button type="button" className="primary-button" disabled={launchBusy} onClick={() => void continueWork()}>{launchBusy ? "啟動中…" : `開啟這個地方 (${launchableCount})`}</button>}<button type="button" disabled={activeFocus} onClick={() => beginFocus({ phase: "focus", linkedTodoId: null, linkedGroupId: candidate.id })}>開始專注</button></div>{launchFeedback && <small className={`today-launch-feedback${launchFeedback.startsWith("目前無法") ? " is-error" : ""}`} role="status">{launchFeedback}</small>}</div></section>}
     </div>
   </div></main>;
+}
+
+export function TodayWorkspace(): ReactElement;
+export function TodayWorkspace(props: TodayWorkspaceProps): ReactElement;
+export function TodayWorkspace(props?: TodayWorkspaceProps): ReactElement {
+  return props && "focusState" in props ? <ControlledTodayWorkspace {...props} /> : <StandaloneTodayWorkspace />;
+}
+
+export function StandaloneTodayWorkspace() {
+  const focus = useFocusController();
+  return <ControlledTodayWorkspace focusState={focus.state} focusReady={focus.ready} focusError={focus.error ? "正在做暫時無法讀取" : null} onStartFocus={(request) => focus.start(request).then(() => undefined)} onReturnToFocus={() => undefined} />;
 }
 
 export { continueCandidate, focusRemainingSeconds, hasLaunchableChildren, launchableChildCount, resolveFocusContext, sortByOrganization, todayTodoSections };

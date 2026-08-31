@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getFocusState,
   getFocusSessions,
@@ -10,6 +10,7 @@ import {
   updateFocusSettings,
   type FocusState,
   type FocusSession,
+  type FocusSettings,
 } from "../lib/platform";
 import { useModalFocus } from "../lib/accessibility";
 import type { FocusController } from "../features/focus/useFocusController";
@@ -42,11 +43,21 @@ function clock(seconds: number): string {
 export function FocusDialog({ onClose, onChanged, controller, embedded = false, backLabel = "返回頁面" }: FocusDialogProps) {
   const [localState, setLocalState] = useState<FocusState | null>(null);
   const state = controller?.state ?? localState;
+  const [settingsDraft, setSettingsDraft] = useState<FocusSettings | null>(null);
+  const canonicalSettingsKey = state ? JSON.stringify(state.settings) : null;
+  const syncedSettingsKey = useRef<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<FocusSession[]>([]);
   const dialogRef = useModalFocus<HTMLElement>(!embedded, onClose);
+
+  useEffect(() => {
+    if (state && syncedSettingsKey.current !== canonicalSettingsKey) {
+      syncedSettingsKey.current = canonicalSettingsKey;
+      setSettingsDraft(state.settings);
+    }
+  }, [canonicalSettingsKey, state]);
 
   useEffect(() => {
     if (controller) { onChanged(controller.state ?? { status: "idle", phase: "focus", cycleCount: 0, startedAt: null, endsAt: null, remainingSeconds: null, linkedTodoId: null, linkedGroupId: null, updatedAt: 0, settings: { focusMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15, longBreakInterval: 4, autoStartFocus: false, autoStartBreak: false, notificationsEnabled: true } }); return; }
@@ -67,6 +78,13 @@ export function FocusDialog({ onClose, onChanged, controller, embedded = false, 
     try { const next = await (controlled ? controlled() : operation()); setLocalState(next); onChanged(next); const from = new Date(); from.setHours(0, 0, 0, 0); setSessions(await getFocusSessions(Math.floor(from.getTime() / 1000), Math.floor(Date.now() / 1000))); }
     catch (reason) { setError(platformErrorMessage(reason, "無法更新 Focus Timer。")); }
     finally { setBusy(false); }
+  }
+
+  async function commitSettings(): Promise<FocusState> {
+    if (!settingsDraft || !state) throw new Error("Focus 設定尚未準備好");
+    const next = await updateFocusSettings(settingsDraft);
+    if (controller) await controller.refresh();
+    return next;
   }
 
   const seconds = state ? remaining(state) : 0;
@@ -90,7 +108,7 @@ export function FocusDialog({ onClose, onChanged, controller, embedded = false, 
             {sessions.length ? <ul>{sessions.slice(0, 5).map((session) => <li key={session.id}><span>{phaseLabels[session.phase]}</span><strong>{Math.max(1, Math.round(session.actualSeconds / 60))} 分</strong><small>{session.outcome === "completed" ? "完成" : session.outcome === "skipped" ? "跳過" : "提前結束"}</small></li>)}</ul> : <p>今天還沒有完成的計時紀錄。</p>}
           </section>
           <details className="focus-settings"><summary>計時設定</summary><div>
-            {([ ["focusMinutes", "專注分鐘", 1, 180], ["shortBreakMinutes", "短休息分鐘", 1, 120], ["longBreakMinutes", "長休息分鐘", 1, 180], ["longBreakInterval", "長休息間隔", 1, 12] ] as const).map(([key, label, min, max]) => <label key={key}>{label}<input type="number" min={min} max={max} value={state.settings[key]} onChange={(event) => setLocalState((current) => current ? { ...current, settings: { ...current.settings, [key]: Math.max(min, Math.min(max, Number(event.target.value) || min)) } } : current)} onBlur={() => void run(() => updateFocusSettings(state.settings))} /></label>)}
+            {([ ["focusMinutes", "專注分鐘", 1, 180], ["shortBreakMinutes", "短休息分鐘", 1, 120], ["longBreakMinutes", "長休息分鐘", 1, 180], ["longBreakInterval", "長休息間隔", 1, 12] ] as const).map(([key, label, min, max]) => <label key={key}>{label}<input type="number" min={min} max={max} value={settingsDraft?.[key] ?? state.settings[key]} onChange={(event) => setSettingsDraft((current) => ({ ...(current ?? state.settings), [key]: Math.max(min, Math.min(max, Number(event.target.value) || min)) }))} onBlur={() => void run(() => commitSettings())} /></label>)}
           </div></details>
         </>}
         {error && <p className="form-error" role="alert">{error}</p>}
