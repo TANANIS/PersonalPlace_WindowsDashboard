@@ -4,12 +4,21 @@ Personal Place 是 Windows 上、本機優先的個人數位首頁。你可以�
 
 ## 下載
 
-目前版本：**1.9.0**
+目前版本：**1.9.1**
 
-- [免安裝版 EXE（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.9.0/releases/Personal-Place-1.9.0/Personal-Place-1.9.0-portable.exe)
-- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.9.0/releases/Personal-Place-1.9.0/SHA256SUMS.txt)
+- [免安裝版 EXE（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.9.1/releases/Personal-Place-1.9.1/Personal-Place-1.9.1-portable.exe)
+- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.9.1/releases/Personal-Place-1.9.1/SHA256SUMS.txt)
 
-v1.9.0 的公開下載只提供免安裝版；因應 Windows Defender 對 installer 的機器學習偵測，安裝版不公開。portable EXE 未使用受信任的 Authenticode 憑證簽章，Windows 仍可能顯示 SmartScreen、無法驗證發行者或安全性情報警告；SHA-256 只用來驗證下載內容是否與本 repository 發布的檔案一致。
+v1.9.1 的公開下載只提供免安裝版；因應 Windows Defender 對 installer 的機器學習偵測，安裝版不公開。portable EXE 未使用受信任的 Authenticode 憑證簽章，Windows 仍可能顯示 SmartScreen、無法驗證發行者或安全性情報警告；SHA-256 只用來驗證下載內容是否與本 repository 發布的檔案一致。
+
+## 1.9.1：Personal Place 2.0 視覺修復
+
+- 完成 Stage 5 視覺系統遷移，統一 Dashboard、Today、Todo、Focus、Calendar、Activity 與設定頁面的層級、間距和元件外觀。
+- 平常瀏覽與整理模式維持分離；整理模式補齊選取操作列、卡片狀態與拖曳相關視覺。
+- 統一卡片與內建小工具高度，並修復 Focus、Todo、使用時間等混合內容的排版。
+- 搜尋改為預設收斂、聚焦時才顯示範圍選項；加入與整理操作降低視覺干擾。
+- 行事曆事件詳情與 Activity 時間軸重新排版，改善文字密度、資訊分組與可讀性。
+- 這次更新不變更資料 schema、備份格式或本機優先的隱私邊界。
 
 ## 1.9.0：Today Intent 與工作流程教學
 
