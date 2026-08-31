@@ -1,5 +1,6 @@
-.app-shell.is-focus-mode .main-content { width: 100%; margin: 0; padding: 0; background: var(--app-bg); }
-.focus-mode { min-height: 100%; display: grid; place-items: center; padding: clamp(40px, 10vw, 112px) 24px; }
+.app-shell.is-focus-mode { grid-template-columns: minmax(0, 1fr); width: 100%; min-width: 0; }
+.app-shell.is-focus-mode .main-content { grid-column: 1; width: 100%; min-width: 0; margin: 0; padding: 0; background: var(--app-bg); }
+.focus-mode { width: 100%; min-width: 0; min-height: 100%; display: grid; place-items: center; padding: clamp(40px, 10vw, 112px) 24px; }
 .focus-mode-panel { width: min(var(--content-focus), 100%); padding: 0; border: 0; background: transparent; box-shadow: none; text-align: center; }
 .focus-mode-panel h1 { max-width: 18ch; margin: var(--space-2) auto var(--space-4); color: var(--text-strong); font-size: clamp(38px, 6vw, 52px); font-weight: 760; line-height: 1.08; letter-spacing: -.035em; }
 .focus-mode-eyebrow, .focus-mode-status { margin: 0; color: var(--text-muted); font-size: 12px; }
