@@ -9,11 +9,13 @@ A — Product narrative                RESOLVED
 B — Today / Home IA                  RESOLVED
 C — Real Focus Mode                  RESOLVED
 D — Visual system + UI deletion      RESOLVED
+Implementation architecture review   COMPLETE
 
 Next:
-Implementation architecture review
-→ staged Sol → Luna handoff
-→ validation against A / B / C / D
+Stage 0 / Stage 1 Sol → Luna handoff
+→ staged implementation
+→ validation after every stage
+→ final 2.0 acceptance against A / B / C / D
 ```
 
 ## Sources
@@ -60,6 +62,25 @@ D resolves:
 - legacy Focus / Usage widget direction;
 - responsive / accessibility contract.
 
+### Implementation architecture
+
+See [`PRODUCT_2_0_IMPLEMENTATION_ARCHITECTURE.md`](PRODUCT_2_0_IMPLEMENTATION_ARCHITECTURE.md).
+
+The architecture review resolves:
+
+- navigation / return-origin changes;
+- standalone Todo workspace architecture;
+- app-level Focus controller and FocusMode presentation state;
+- Today-to-AppShell orchestration boundary;
+- Place Focus / launch separation;
+- legacy widget compatibility strategy;
+- built-in Usage vs ActivityWatch distinction;
+- staged CSS / design-system migration;
+- implementation stage dependency order;
+- per-stage validation gates.
+
+The core 2.0 plan remains schema-neutral unless implementation discovers a genuine new persistent-data requirement.
+
 ## Product test
 
 > **Personal Place is a local-first personal workspace that helps you decide what to do today, continue from where you left off, and start focusing.**
@@ -72,8 +93,21 @@ Visual / interaction character:
 
 > **Calm, private, low-pressure, directed, non-judgmental — like returning to your own work desk.**
 
+## Implementation order
+
+```text
+Stage 0 — baseline / characterization guardrails
+Stage 1 — navigation foundation + standalone Todo
+Stage 2 — app-level Focus controller + Focus Mode
+Stage 3 — Today 2.0 + startup + sidebar IA
+Stage 4 — Page / Place interaction cleanup
+Stage 5 — visual-system migration
+Stage 6 — legacy Focus / Usage widget bridge
+Stage 7 — cleanup + complete acceptance + release prep
+```
+
 ## Next rule
 
-Do not add another feature or ask Luna to generally "redesign" / "make it prettier".
+Do not ask Luna to generally "implement 2.0", "redesign the app", or consume Stages 0–7 in one implementation run.
 
-The next Sol pass must inspect the current v1.9 implementation against A / B / C / D, determine implementation stages and compatibility risks, then produce bounded Luna handoffs.
+The next Sol task is to produce one bounded Stage 0 / Stage 1 handoff, then review its result before authoring Stage 2.
