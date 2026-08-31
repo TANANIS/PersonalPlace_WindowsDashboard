@@ -57,12 +57,12 @@ The internal model is coherent, but users should not need to reverse-engineer it
 Current concepts include:
 
 ```text
-Todo      = what I need to handle
+Todo       = what I need to handle
 plannedFor = when I intend to work on it
-Today     = what matters now
-Place     = where / in what context I continue work
-Focus     = what I am doing now
-Activity  = what I actually did
+Today      = what matters now
+Place      = where / in what context I continue work
+Focus      = what I am doing now
+Activity   = what I actually did
 ```
 
 The next product pass must make this flow understandable through the interface itself, not only through documentation or onboarding.
@@ -140,17 +140,221 @@ Do not solve this by only changing colors or applying a new skin.
 
 The next major effort should probably be treated as a **2.0 product consolidation**, not simply another feature release.
 
-### A. Product narrative
+### A. Product narrative — resolved direction
 
-Before implementation, define:
+The v1.9 README still primarily describes Personal Place as a local-first Windows digital homepage where users organize apps, websites, files, folders and notes into Pages and Places.
 
-- the one-sentence product promise;
-- the first 30 seconds after a new user launches the app;
-- the primary action on the default screen;
-- the purpose of each top-level domain in one sentence;
-- what information is intentionally hidden until needed.
+That description remains technically true, but it should no longer be the primary product story.
 
-If these cannot be explained simply, do not add another feature yet.
+The stronger product direction is:
+
+> **Personal Place is a local-first personal workspace that helps you decide what to do today, continue from where you left off, and start focusing.**
+
+A shorter internal product test is:
+
+> **Know what to do today, continue from where you stopped, then begin.**
+
+#### Primary job
+
+The primary job of Personal Place is not information management, Todo management, launching apps, time tracking, or running a timer in isolation.
+
+The primary job is:
+
+> **Reduce the activation cost between intending to work and actually starting.**
+
+This becomes the product-level decision rule for future UX work.
+
+If information or functionality does not help the user decide, continue, start, or later review, it should not automatically receive primary visual weight.
+
+#### First 30 seconds for a new user
+
+A new user should receive value before being asked to understand Pages, Places, Calendar, Activity, grouping, backup, widgets, or advanced organization.
+
+The ideal first-use path is approximately:
+
+```text
+Open Personal Place
+        ↓
+What do you want to finish today?
+        ↓
+Add one task
+        ↓
+Today shows that task
+        ↓
+Start Focus
+```
+
+The user should be able to understand the product from this loop alone.
+
+Do not require structural organization before the first useful action.
+
+#### First 10 seconds for a returning user
+
+The landing experience should respond to the user's current state.
+
+If Focus is active:
+
+```text
+正在做
+<current work>
+<remaining / elapsed focus state>
+[繼續]
+```
+
+If Today already has planned work:
+
+```text
+今天
+<planned item>
+[開始]
+```
+
+If Today is empty:
+
+```text
+今天還沒有安排
+[從待辦選一件]
+[新增一件事]
+```
+
+The default screen should not force the user to scan a dashboard to infer which state they are in.
+
+#### User-facing domain meanings
+
+The architecture may retain domain names and boundaries, but the interface should communicate benefits rather than implementation concepts.
+
+| Domain | User-facing meaning |
+| --- | --- |
+| **Today** | 我現在該做什麼 |
+| **Todo** | 別讓我要做的事情消失 |
+| **Place** | 把一件工作的東西和進度留在原地，下次直接接著做 |
+| **Focus** | 我已經決定了，現在只做這件事 |
+| **Calendar** | 別讓固定行程撞到我的安排 |
+| **Activity** | 我最後實際把時間花到哪裡 |
+| **Page** | 東西變多後才需要的整理分區 |
+
+#### Page is not a core onboarding concept
+
+Page may remain useful in the product and architecture, but a new user should not need to understand a Page/Place hierarchy before receiving value.
+
+Treat Page primarily as an advanced organization mechanism.
+
+The interface may reveal it when the user's content grows rather than presenting it as part of the product's opening thesis.
+
+#### Place remains strategically important
+
+Place should not be reduced to a folder or group.
+
+Its distinctive value is preserving a **working scene / continuation context**:
+
+```text
+Tools / files / links used for one activity
++
+where I stopped last time
+=
+return to the same working context
+```
+
+The product should sell the benefit first:
+
+> Leave the work where it is, then come back and continue.
+
+Only then should the user need to learn the term `Place`.
+
+#### Focus is a state, not merely a timer
+
+Focus should represent the point where decision-making is over.
+
+Today asks:
+
+> What should I do?
+
+Focus says:
+
+> I already chose. Stop showing me alternatives.
+
+Therefore a future real Focus Mode should primarily be a **subtractive visual state**.
+
+The timer is supportive, not the defining feature.
+
+#### Progressive disclosure
+
+Do not teach every feature during first use.
+
+Initial concepts should be close to:
+
+```text
+Today
+Todo
+Start
+```
+
+Reveal other concepts when they become useful:
+
+```text
+Repeatedly return to the same work?
+→ Place
+
+Have fixed commitments?
+→ Calendar
+
+Want to review where time actually went?
+→ Activity
+```
+
+First give value. Then teach structure.
+
+#### Product hierarchy
+
+Future IA should treat domains with different product weight rather than as equal destinations.
+
+```text
+                  Personal Place
+
+                      TODAY
+                        │
+            ┌───────────┴───────────┐
+            │                       │
+        今天做什麼？            正在做什麼？
+            │                       │
+          Todo                    Focus
+            │
+        從哪裡繼續？
+            │
+          Place
+
+────────────────────────────────────────
+
+            Calendar       Activity
+              約束             回顧
+
+────────────────────────────────────────
+
+               Pages / Search
+                   整理
+```
+
+This is a product-weight model, not yet a final UI layout.
+
+#### Product principles established in A
+
+1. **Personal Place's job is not to manage information; it is to reduce the cost of starting work.**
+2. **Today is the product entry point, not merely another workspace.**
+3. **Users should receive value before being asked to organize.**
+4. **Place sells continuation of a working scene, not grouping.**
+5. **Focus is a subtractive state, not merely a timer feature.**
+
+These principles should constrain the next IA and visual-design passes.
+
+#### Remaining A question: product feeling
+
+Before finalizing the Today/home IA, define what the application should feel like.
+
+Current candidate direction:
+
+> **Calm, private, low-pressure, and like returning to your own work desk.**
+
+Do not prematurely treat this as final visual styling. Resolve the emotional / interaction character first, then use it to judge what should be removed, hidden, demoted, or visually quieted.
 
 ---
 
@@ -250,15 +454,15 @@ These may be useful later, but they do not answer the current problem.
 
 Before producing a Luna implementation handoff, answer:
 
-1. What is the single primary job of Personal Place?
-2. What should a brand-new user do in the first 30 seconds?
-3. What should a returning user do in the first 10 seconds?
-4. Should Today become the default landing experience?
+1. What is the single primary job of Personal Place? **Answered in A.**
+2. What should a brand-new user do in the first 30 seconds? **Answered in A.**
+3. What should a returning user do in the first 10 seconds? **Answered in A.**
+4. Should Today become the default landing experience? **Direction strongly favors yes; resolve in B.**
 5. What is the minimum information needed before starting Focus?
 6. What disappears once Focus starts?
-7. How should Place be explained without teaching database-like structure?
+7. How should Place be explained without teaching database-like structure? **Answered in A.**
 8. Which current UI elements compete for attention without enough value?
-9. What should the application feel like visually: calm, focused, quiet, dense, playful, utilitarian, etc.?
+9. What should the application feel like visually: calm, focused, quiet, dense, playful, utilitarian, etc.? **Resolve before B is finalized.**
 10. Which parts of the current UI should be deleted rather than redesigned?
 
 ---
