@@ -28,6 +28,7 @@ interface GroupDetailViewProps {
   onSetLaunchEnabled: (card: DashboardCard, enabled: boolean) => Promise<void>;
   onSaveResume: (value: string) => Promise<void>;
   onLaunch: () => Promise<GroupLaunchResult>;
+  onStartFocus?: () => Promise<void>;
 }
 
 type SaveState = "idle" | "saving" | "saved" | "failed";
@@ -60,6 +61,7 @@ export function GroupDetailView({
   onSetLaunchEnabled,
   onSaveResume,
   onLaunch,
+  onStartFocus,
 }: GroupDetailViewProps) {
   const [resumeDraft, setResumeDraft] = useState(group.resumeNote);
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -194,6 +196,7 @@ export function GroupDetailView({
           >
             {launching ? "正在開啟…" : `開啟這個地方${launchCount ? ` (${launchCount})` : ""}`}
           </button>
+          {onStartFocus && <button type="button" className="button secondary" disabled={busy || launching} onClick={() => void onStartFocus()}>開始專注</button>}
         </div>
       </header>
 

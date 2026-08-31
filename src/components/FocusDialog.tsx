@@ -12,12 +12,14 @@ import {
   type FocusSession,
 } from "../lib/platform";
 import { useModalFocus } from "../lib/accessibility";
+import type { FocusController } from "../features/focus/useFocusController";
 
 interface FocusDialogProps {
   onClose: () => void;
   onChanged: (state: FocusState) => void;
   embedded?: boolean;
   backLabel?: string;
+  controller?: FocusController;
 }
 
 const phaseLabels: Record<FocusState["phase"], string> = {
@@ -37,8 +39,9 @@ function clock(seconds: number): string {
   return `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`;
 }
 
-export function FocusDialog({ onClose, onChanged, embedded = false, backLabel = "返回頁面" }: FocusDialogProps) {
-  const [state, setState] = useState<FocusState | null>(null);
+export function FocusDialog({ onClose, onChanged, controller, embedded = false, backLabel = "返回頁面" }: FocusDialogProps) {
+  const [localState, setLocalState] = useState<FocusState | null>(null);
+  const state = controller?.state ?? localState;
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,21 +49,22 @@ export function FocusDialog({ onClose, onChanged, embedded = false, backLabel = 
   const dialogRef = useModalFocus<HTMLElement>(!embedded, onClose);
 
   useEffect(() => {
+    if (controller) { onChanged(controller.state ?? { status: "idle", phase: "focus", cycleCount: 0, startedAt: null, endsAt: null, remainingSeconds: null, linkedTodoId: null, linkedGroupId: null, updatedAt: 0, settings: { focusMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15, longBreakInterval: 4, autoStartFocus: false, autoStartBreak: false, notificationsEnabled: true } }); return; }
     let disposed = false;
     const from = new Date(); from.setHours(0, 0, 0, 0);
     const load = () => void getFocusState().then((next) => {
-      if (!disposed) { setState(next); onChanged(next); }
+      if (!disposed) { setLocalState(next); onChanged(next); }
     }).catch((reason) => !disposed && setError(platformErrorMessage(reason, "無法讀取 Focus Timer。")));
     void getFocusSessions(Math.floor(from.getTime() / 1000), Math.floor(Date.now() / 1000)).then((next) => !disposed && setSessions(next)).catch(() => undefined);
     load();
     const timer = window.setInterval(() => { setNow(Date.now()); load(); }, 5_000);
     return () => { disposed = true; window.clearInterval(timer); };
-  }, [onChanged]);
+  }, [controller, onChanged]);
 
-  async function run(operation: () => Promise<FocusState>) {
+  async function run(operation: () => Promise<FocusState>, controlled?: () => Promise<FocusState>) {
     if (busy) return;
     setBusy(true); setError(null);
-    try { const next = await operation(); setState(next); onChanged(next); const from = new Date(); from.setHours(0, 0, 0, 0); setSessions(await getFocusSessions(Math.floor(from.getTime() / 1000), Math.floor(Date.now() / 1000))); }
+    try { const next = await (controlled ? controlled() : operation()); setLocalState(next); onChanged(next); const from = new Date(); from.setHours(0, 0, 0, 0); setSessions(await getFocusSessions(Math.floor(from.getTime() / 1000), Math.floor(Date.now() / 1000))); }
     catch (reason) { setError(platformErrorMessage(reason, "無法更新 Focus Timer。")); }
     finally { setBusy(false); }
   }
@@ -73,20 +77,20 @@ export function FocusDialog({ onClose, onChanged, embedded = false, backLabel = 
         {!state ? <p className="muted-copy">正在讀取計時器…</p> : <>
           <div className="focus-clock" aria-live="polite"><small>{phaseLabels[state.phase]}</small><strong>{clock(seconds)}</strong><span>{state.status === "idle" ? "準備開始" : state.status === "paused" ? "已暫停" : "進行中"}</span></div>
           <div className="focus-actions">
-            {state.status === "idle" && <button className="button primary" disabled={busy} onClick={() => void run(() => startFocus({ phase: state.phase }))}>開始 {phaseLabels[state.phase]}</button>}
-            {state.status === "running" && <button className="button primary" disabled={busy} onClick={() => void run(pauseFocus)}>暫停</button>}
-            {state.status === "paused" && <button className="button primary" disabled={busy} onClick={() => void run(resumeFocus)}>繼續</button>}
-            {state.status !== "idle" && <><button className="button secondary" disabled={busy} onClick={() => void run(() => stopFocus("skipped"))}>跳過</button><button className="button secondary" disabled={busy} onClick={() => void run(() => stopFocus("stopped"))}>提前結束</button></>}
+            {state.status === "idle" && <button className="button primary" disabled={busy} onClick={() => void run(() => startFocus({ phase: state.phase }), controller ? () => controller.start({ phase: state.phase }) : undefined)}>開始 {phaseLabels[state.phase]}</button>}
+            {state.status === "running" && <button className="button primary" disabled={busy} onClick={() => void run(pauseFocus, controller?.pause)}>暫停</button>}
+            {state.status === "paused" && <button className="button primary" disabled={busy} onClick={() => void run(resumeFocus, controller?.resume)}>繼續</button>}
+            {state.status !== "idle" && <><button className="button secondary" disabled={busy} onClick={() => void run(() => stopFocus("skipped"), controller ? () => controller.stop("skipped") : undefined)}>跳過</button><button className="button secondary" disabled={busy} onClick={() => void run(() => stopFocus("stopped"), controller ? () => controller.stop("stopped") : undefined)}>提前結束</button></>}
           </div>
           <div className="focus-phases" aria-label="選擇階段">
-            {(["focus", "shortBreak", "longBreak"] as FocusState["phase"][]).map((phase) => <button type="button" key={phase} disabled={busy || state.status !== "idle"} className={phase === state.phase ? "is-active" : ""} onClick={() => void run(() => startFocus({ phase }))}>{phaseLabels[phase]}</button>)}
+            {(["focus", "shortBreak", "longBreak"] as FocusState["phase"][]).map((phase) => <button type="button" key={phase} disabled={busy || state.status !== "idle"} className={phase === state.phase ? "is-active" : ""} onClick={() => void run(() => startFocus({ phase }), controller ? () => controller.start({ phase }) : undefined)}>{phaseLabels[phase]}</button>)}
           </div>
           <section className="focus-history" aria-label="今日專注紀錄">
             <div><strong>今日紀錄</strong><small>{sessions.filter((session) => session.phase === "focus").length} 次專注</small></div>
             {sessions.length ? <ul>{sessions.slice(0, 5).map((session) => <li key={session.id}><span>{phaseLabels[session.phase]}</span><strong>{Math.max(1, Math.round(session.actualSeconds / 60))} 分</strong><small>{session.outcome === "completed" ? "完成" : session.outcome === "skipped" ? "跳過" : "提前結束"}</small></li>)}</ul> : <p>今天還沒有完成的計時紀錄。</p>}
           </section>
           <details className="focus-settings"><summary>計時設定</summary><div>
-            {([ ["focusMinutes", "專注分鐘", 1, 180], ["shortBreakMinutes", "短休息分鐘", 1, 120], ["longBreakMinutes", "長休息分鐘", 1, 180], ["longBreakInterval", "長休息間隔", 1, 12] ] as const).map(([key, label, min, max]) => <label key={key}>{label}<input type="number" min={min} max={max} value={state.settings[key]} onChange={(event) => setState((current) => current ? { ...current, settings: { ...current.settings, [key]: Math.max(min, Math.min(max, Number(event.target.value) || min)) } } : current)} onBlur={() => void run(() => updateFocusSettings(state.settings))} /></label>)}
+            {([ ["focusMinutes", "專注分鐘", 1, 180], ["shortBreakMinutes", "短休息分鐘", 1, 120], ["longBreakMinutes", "長休息分鐘", 1, 180], ["longBreakInterval", "長休息間隔", 1, 12] ] as const).map(([key, label, min, max]) => <label key={key}>{label}<input type="number" min={min} max={max} value={state.settings[key]} onChange={(event) => setLocalState((current) => current ? { ...current, settings: { ...current.settings, [key]: Math.max(min, Math.min(max, Number(event.target.value) || min)) } } : current)} onBlur={() => void run(() => updateFocusSettings(state.settings))} /></label>)}
           </div></details>
         </>}
         {error && <p className="form-error" role="alert">{error}</p>}

@@ -12,6 +12,9 @@ import { CardEditDialog, type CardEditValues } from "../components/CardEditDialo
 import { buildLabel, loadAppVersion } from "./buildMetadata";
 import { PageManagerDialog } from "../components/PageManagerDialog";
 import { GroupDetailView } from "../components/GroupDetailView";
+import { TodayWorkspace } from "../features/today/TodayWorkspace";
+import { FocusMode } from "../features/focus/FocusMode";
+import { useFocusController, type StartFocusRequest } from "../features/focus/useFocusController";
 import { NoteWorkspace } from "../components/NoteWorkspace";
 import { TargetRepairDialog } from "../components/TargetRepairDialog";
 import { BackupDialog } from "../components/BackupDialog";
@@ -88,7 +91,7 @@ import type {
   MoveCardsRequest,
 } from "../platform/dashboard";
 import { exportBackup, inspectBackup, restoreBackup } from "../platform/backup";
-import { getFocusState, pauseFocus, resumeFocus, startFocus, stopFocus, type FocusState } from "../platform/focus";
+import type { FocusState } from "../platform/focus";
 import {
   getRecoveryInfo,
   initializeWorkspace,
@@ -171,7 +174,8 @@ export function AppShell() {
   const [cacheInfo, setCacheInfo] = useState<PreviewCacheInfo | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
   const [widgetSummaries, setWidgetSummaries] = useState<Record<string, WidgetSummary>>({});
-  const [focusState, setFocusState] = useState<FocusState | null>(null);
+  const focusController = useFocusController();
+  const focusState = focusController.state;
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
   const [widgetActionBusy, setWidgetActionBusy] = useState(false);
   const [cardEditError, setCardEditError] = useState<string | null>(null);
@@ -341,7 +345,7 @@ export function AppShell() {
   }
 
   function returnToOrigin() {
-    if (isRootView(view)) return;
+    if (isRootView(view) || view.kind === "focusMode") return;
     const origin = view.origin;
     if (origin.placeId) {
       const { placeId, placeScrollY, ...dashboardOrigin } = origin;
@@ -446,18 +450,16 @@ export function AppShell() {
   }, [openGroupId, pageCards, topLevelCards]);
 
   useEffect(() => {
-    const hasFocus = (openGroupId ? pageCards.filter((card) => card.parentGroupId === openGroupId) : topLevelCards).some((card) => card.cardType === "widget" && card.widgetKind === "focus");
     const hasUsage = (openGroupId ? pageCards.filter((card) => card.parentGroupId === openGroupId) : topLevelCards).some((card) => card.cardType === "widget" && card.widgetKind === "usage");
     let disposed = false;
     const refresh = () => {
-      if (hasFocus) void getFocusState().then((next) => !disposed && setFocusState(next)).catch(() => undefined);
       if (hasUsage) {
         const from = new Date(); from.setHours(0, 0, 0, 0);
         void getUsageSummary(Math.floor(from.getTime() / 1000), Math.floor(Date.now() / 1000)).then((next) => !disposed && setUsageSummary(next)).catch(() => undefined);
       }
     };
     refresh();
-    const timer = window.setInterval(refresh, hasFocus ? 5_000 : 30_000);
+    const timer = window.setInterval(refresh, 30_000);
     return () => { disposed = true; window.clearInterval(timer); };
   }, [openGroupId, pageCards, topLevelCards]);
 
@@ -653,11 +655,10 @@ export function AppShell() {
     if (widgetActionBusy) return;
     setWidgetActionBusy(true);
     try {
-      const next = action === "start" ? await startFocus({ phase: focusState?.phase ?? "focus" })
-        : action === "pause" ? await pauseFocus()
-          : action === "resume" ? await resumeFocus()
-            : await stopFocus(action === "skip" ? "skipped" : "stopped");
-      setFocusState(next);
+      const next = action === "start" ? await focusController.start({ phase: focusState?.phase ?? "focus" })
+        : action === "pause" ? await focusController.pause()
+          : action === "resume" ? await focusController.resume()
+            : await focusController.stop(action === "skip" ? "skipped" : "stopped");
       await refreshWidgetSummary(cardId);
     } catch (reason) {
       setNotice(platformErrorMessage(reason, "無法控制專注計時。"));
@@ -886,7 +887,7 @@ export function AppShell() {
   const currentWidget = view.kind === "tool"
     ? state.cards.find((card) => card.id === view.widgetId && card.cardType === "widget") ?? null
     : null;
-  const currentViewOrigin = isRootView(view) ? null : view.origin;
+  const currentViewOrigin = view.kind === "place" || view.kind === "tool" || view.kind === "note" ? view.origin : null;
   const originPlace = currentViewOrigin?.placeId
     ? state.cards.find((card) => card.id === currentViewOrigin.placeId && card.cardType === "group") ?? null
     : null;
@@ -966,6 +967,16 @@ export function AppShell() {
     ? getSystemWorkspace(view.workspaceId)
     : undefined;
 
+  async function startAppFocus(request: StartFocusRequest) {
+    try {
+      await focusController.start(request);
+      setView({ kind: "focusMode" });
+      scheduleMainScroll(0);
+    } catch (reason) {
+      setNotice(platformErrorMessage(reason, "無法開始 Focus。"));
+    }
+  }
+
   if (recoveryInfo) {
     return (
       <RecoveryScreen
@@ -978,8 +989,8 @@ export function AppShell() {
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar" aria-label="頁面">
+    <div className={`app-shell${view.kind === "focusMode" ? " is-focus-mode" : ""}`}>
+      {view.kind !== "focusMode" && <aside className="sidebar" aria-label="頁面">
         <div className="brand" aria-label={zhTW.brand.name}><span className="brand-mark">{zhTW.brand.mark}</span></div>
         <nav className="workspace-list">
           {state.pages.map((page) => (
@@ -1030,11 +1041,15 @@ export function AppShell() {
             <span aria-hidden="true">⚙</span><small>{zhTW.sidebar.settings}</small>
           </button>
         </div>
-      </aside>
+      </aside>}
 
       <main ref={mainContentRef} className={`main-content${view.kind !== "dashboard" ? " is-workspace-view" : ""}${openGroup ? " is-place-detail" : ""}`}>
-        {activeSystemWorkspace ? (
-          activeSystemWorkspace.render()
+        {view.kind === "focusMode" ? (
+          <FocusMode controller={focusController} cards={state.cards} onLeave={() => { setView(systemWorkspaceView("today")); scheduleMainScroll(0); }} onLaunchPlace={async (groupId) => { const result = await launchGroup(groupId); if (result.items.some((item) => item.status === "success")) setNotice("已開啟這個地方的工作環境。"); }} />
+        ) : activeSystemWorkspace ? (
+          activeSystemWorkspace.id === "today"
+            ? <TodayWorkspace focusState={focusState} focusReady={focusController.ready} focusError={focusController.error} onStartFocus={startAppFocus} onReturnToFocus={() => setView({ kind: "focusMode" })} />
+            : activeSystemWorkspace.render()
         ) : view.kind === "note" && currentNote ? (
           <NoteWorkspace
             note={currentNote}
@@ -1059,7 +1074,7 @@ export function AppShell() {
         ) : view.kind === "tool" && currentWidget ? (
           <section className="content-workspace tool-workspace">
             {view.tool === "todo" && currentWidget && <TodoDialog embedded backLabel={viewBackLabel} widget={currentWidget} onClose={returnToOrigin} onWidgetListChanged={async (listId) => adoptDashboard(await updateWidgetPreferences(currentWidget.id, listId))} onWidgetChanged={async () => adoptDashboard(await getDashboard())} onChanged={() => void getWidgetSummary(currentWidget.id).then((summary) => setWidgetSummaries((current) => ({ ...current, [currentWidget.id]: summary }))).catch(() => undefined)} />}
-            {view.tool === "focus" && <FocusDialogSafe embedded backLabel={viewBackLabel} onClose={returnToOrigin} onChanged={(nextFocus) => setWidgetSummaries((current) => ({ ...current, [currentWidget.id]: { cardId: currentWidget.id, widgetKind: "focus", title: "Focus Timer", primaryValue: nextFocus.remainingSeconds == null ? `${nextFocus.settings.focusMinutes}:00` : `${Math.floor(nextFocus.remainingSeconds / 60).toString().padStart(2, "0")}:${(nextFocus.remainingSeconds % 60).toString().padStart(2, "0")}`, secondaryValue: nextFocus.status === "running" ? "進行中" : nextFocus.status === "paused" ? "已暫停" : "準備開始", items: [] } }))} />}
+            {view.tool === "focus" && <FocusDialogSafe embedded backLabel={viewBackLabel} onClose={returnToOrigin} onController={focusController} onChanged={(nextFocus) => setWidgetSummaries((current) => ({ ...current, [currentWidget.id]: { cardId: currentWidget.id, widgetKind: "focus", title: "Focus Timer", primaryValue: nextFocus.remainingSeconds == null ? `${nextFocus.settings.focusMinutes}:00` : `${Math.floor(nextFocus.remainingSeconds / 60).toString().padStart(2, "0")}:${(nextFocus.remainingSeconds % 60).toString().padStart(2, "0")}`, secondaryValue: nextFocus.status === "running" ? "進行中" : nextFocus.status === "paused" ? "已暫停" : "準備開始", items: [] } }))} />}
             {view.tool === "usage" && <UsageDialog embedded backLabel={viewBackLabel} onClose={returnToOrigin} onChanged={(summary, tracking) => setWidgetSummaries((current) => ({ ...current, [currentWidget.id]: { cardId: currentWidget.id, widgetKind: "usage", title: "使用時間", primaryValue: `${Math.floor(summary.totalSeconds / 3600)} 小時`, secondaryValue: tracking.enabled ? (summary.apps.slice(0, 3).map((app) => app.displayName).join(" · ") || "等待使用紀錄") : "追蹤預設關閉", items: [] } }))} />}
           </section>
         ) : openGroup ? (
@@ -1098,6 +1113,7 @@ export function AppShell() {
               setOverlay({ kind: "repair", cardId: card.id });
             }}
             onSetLaunchEnabled={toggleLaunchCard}
+            onStartFocus={() => startAppFocus({ phase: "focus", linkedTodoId: null, linkedGroupId: openGroup.id })}
             onSaveResume={saveResumeNote}
             onLaunch={async () => {
               try {

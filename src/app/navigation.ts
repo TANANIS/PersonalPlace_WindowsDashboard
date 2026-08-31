@@ -12,6 +12,7 @@ export type ToolKind = "todo" | "focus" | "usage";
 export type AppView =
   | { kind: "dashboard"; pageId: string }
   | { kind: "systemWorkspace"; workspaceId: string }
+  | { kind: "focusMode" }
   | { kind: "place"; groupId: string; origin: ViewOrigin }
   | { kind: "tool"; widgetId: string; tool: ToolKind; origin: ViewOrigin }
   | { kind: "note"; cardId: string; origin: ViewOrigin; startEditing?: boolean };

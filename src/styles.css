@@ -3940,3 +3940,37 @@ textarea:focus-visible,
   color: var(--text-muted);
   opacity: .82;
 }
+
+.app-shell.is-focus-mode .main-content {
+  width: 100%;
+  margin: 0;
+}
+
+.focus-mode {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: clamp(32px, 8vw, 96px) 24px;
+}
+
+.focus-mode-panel {
+  width: min(640px, 100%);
+  padding: clamp(32px, 7vw, 72px);
+  border: 1px solid var(--border-soft);
+  border-radius: 24px;
+  background: radial-gradient(circle at top, color-mix(in srgb, var(--accent) 14%, transparent), transparent 55%), var(--surface-1);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, .24);
+  text-align: center;
+}
+
+.focus-mode-panel h1 { margin: 8px 0 18px; font-size: clamp(28px, 5vw, 48px); }
+.focus-mode-eyebrow, .focus-mode-status { color: var(--text-muted); }
+.focus-mode-clock { display: block; margin: 28px 0 8px; color: var(--accent); font-size: clamp(56px, 13vw, 112px); font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+.focus-mode-detail, .focus-mode-resume, .focus-completion-time { color: var(--text-secondary); }
+.focus-mode-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 28px; }
+.focus-mode-leave { margin-top: 28px; border: 0; background: transparent; color: var(--text-muted); cursor: pointer; }
+.focus-mode-leave:hover { color: var(--text-primary); }
+
+@media (prefers-reduced-motion: reduce) {
+  .focus-mode-panel { transition: none; }
+}
