@@ -1,12 +1,11 @@
-export interface ViewOrigin {
-  pageId: string;
-  query: string;
-  searchScope: "page" | "all";
-  scrollY: number;
-  editing: boolean;
+export type RootOrigin =
+  | { kind: "dashboard"; pageId: string; query: string; searchScope: "page" | "all"; scrollY: number; editing: boolean }
+  | { kind: "systemWorkspace"; workspaceId: string; scrollY: number };
+
+export type ViewOrigin = RootOrigin & {
   placeId?: string;
   placeScrollY?: number;
-}
+};
 
 export type ToolKind = "todo" | "focus" | "usage";
 

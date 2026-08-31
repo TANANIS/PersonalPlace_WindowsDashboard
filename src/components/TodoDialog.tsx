@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import type { DashboardCard, DashboardState } from "../types";
 import {
   createTodoItem,
   createTodoList,
-  getDashboard,
   deleteTodoItems,
   getTodoOverview,
   isTauriRuntime,
@@ -13,7 +11,6 @@ import {
   setTodoPlannedFor,
   updateTodoItem,
   updateTodoList,
-  updateWidgetPreferences,
   type TodoItem,
   type TodoItemInput,
   type TodoOverview,
@@ -27,12 +24,19 @@ import { localDateKey, localDayBounds, localTomorrowKey } from "../lib/localDate
 type TodoFilter = "all" | "plannedToday" | "dueToday" | "upcoming" | "overdue" | "completed";
 
 interface TodoDialogProps {
-  widget: DashboardCard;
+  widget?: TodoWidgetBinding;
   onClose: () => void;
-  onDashboardChanged: (dashboard: DashboardState) => void;
-  onChanged: () => void;
+  onWidgetListChanged?: (listId: string) => Promise<void>;
+  onWidgetChanged?: () => Promise<void>;
+  onChanged?: () => void;
   embedded?: boolean;
   backLabel?: string;
+  showBackButton?: boolean;
+}
+
+export interface TodoWidgetBinding {
+  id: string;
+  widgetResourceId?: string | null;
 }
 
 const emptyInput: TodoItemInput = {
@@ -110,9 +114,9 @@ function itemToInput(item: TodoItem): TodoItemInput {
   };
 }
 
-export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged, embedded = false, backLabel = "返回頁面" }: TodoDialogProps) {
+export function TodoDialog({ widget, onClose, onWidgetListChanged, onWidgetChanged, onChanged = () => undefined, embedded = false, backLabel = "返回頁面", showBackButton = embedded }: TodoDialogProps) {
   const [overview, setOverview] = useState<TodoOverview | null>(null);
-  const [listId, setListId] = useState(widget.widgetResourceId ?? "");
+  const [listId, setListId] = useState(widget?.widgetResourceId ?? "");
   const [filter, setFilter] = useState<TodoFilter>("all");
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<TodoItemInput>(emptyInput);
@@ -170,7 +174,7 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged, emb
     setError(null);
     try {
       setOverview(await operation());
-      if (syncDashboard && isTauriRuntime()) onDashboardChanged(await getDashboard());
+      if (syncDashboard && onWidgetChanged && isTauriRuntime()) await onWidgetChanged();
       onChanged();
     } catch (reason) {
       setError(platformErrorMessage(reason, "待辦操作失敗。"));
@@ -193,9 +197,9 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged, emb
     setEditingId(null);
     setDraft(emptyInput);
     setEditorOpen(false);
-    if (nextListId !== widget.widgetResourceId && isTauriRuntime()) {
+    if (widget && onWidgetListChanged && nextListId !== widget.widgetResourceId && isTauriRuntime()) {
       try {
-        onDashboardChanged(await updateWidgetPreferences(widget.id, nextListId));
+        await onWidgetListChanged(nextListId);
       } catch (reason) {
         setError(platformErrorMessage(reason, "無法切換小工具清單。"));
       }
@@ -215,9 +219,9 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged, emb
       if (!created) return;
       setListId(created.id);
       onChanged();
-      if (isTauriRuntime() && created.id !== widget.widgetResourceId) {
+      if (widget && onWidgetListChanged && isTauriRuntime() && created.id !== widget.widgetResourceId) {
         try {
-          onDashboardChanged(await updateWidgetPreferences(widget.id, created.id));
+          await onWidgetListChanged(created.id);
         } catch {
           setError("清單已建立，但無法將目前小工具切換到新清單。");
         }
@@ -274,7 +278,7 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged, emb
   const content = (
       <section ref={dialogRef} tabIndex={-1} className={embedded ? "tool-workspace-surface todo-workspace" : "dialog tool-dialog todo-dialog"} role={embedded ? "region" : "dialog"} aria-modal={embedded ? undefined : true} aria-labelledby="todo-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
         <header className={embedded ? "workspace-view-header" : "dialog-header"}>
-          <div>{embedded && <button type="button" className="back-button" onClick={onClose}>← {backLabel}</button>}<p className="eyebrow">TODO</p><h2 id="todo-dialog-title">待辦事項</h2><small className="dialog-subtitle">把清單與下一步放在一個安靜的工作區</small></div>
+          <div>{embedded && showBackButton && <button type="button" className="back-button" onClick={onClose}>← {backLabel}</button>}<p className="eyebrow">TODO</p><h2 id="todo-dialog-title">待辦事項</h2><small className="dialog-subtitle">把清單與下一步放在一個安靜的工作區</small></div>
           {embedded ? <button type="button" className="button primary" onClick={() => { setEditingId(null); setDraft(emptyInput); setEditorOpen(true); }}>＋ 新增待辦</button> : <button type="button" className="icon-button" onClick={onClose} aria-label="關閉待辦事項">×</button>}
         </header>
 

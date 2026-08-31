@@ -71,6 +71,7 @@ import {
   updateCard,
   updateGroupResume,
   updateNote,
+  updateWidgetPreferences,
   relinkTarget,
   updatePage,
 } from "../platform/dashboard";
@@ -290,14 +291,15 @@ export function AppShell() {
     { id: "home", name: "我的地方", symbol: "⌂" };
 
   function captureOrigin(): ViewOrigin {
-    const dashboardOrigin = view.kind === "place" ? view.origin : null;
+    const nestedOrigin = view.kind === "place" ? view.origin : null;
     const currentScrollY = mainContentRef.current?.scrollTop ?? 0;
+    const rootOrigin: ViewOrigin = nestedOrigin
+      ? { ...nestedOrigin, placeId: undefined, placeScrollY: undefined }
+      : view.kind === "systemWorkspace"
+        ? { kind: "systemWorkspace", workspaceId: view.workspaceId, scrollY: currentScrollY }
+        : { kind: "dashboard", pageId: activePage.id, query, searchScope, scrollY: currentScrollY, editing };
     return {
-      pageId: activePage.id,
-      query: dashboardOrigin?.query ?? query,
-      searchScope: dashboardOrigin?.searchScope ?? searchScope,
-      scrollY: dashboardOrigin?.scrollY ?? currentScrollY,
-      editing: dashboardOrigin?.editing ?? editing,
+      ...rootOrigin,
       placeId: view.kind === "place" ? view.groupId : undefined,
       placeScrollY: view.kind === "place" ? currentScrollY : undefined,
     };
@@ -341,15 +343,19 @@ export function AppShell() {
   function returnToOrigin() {
     if (isRootView(view)) return;
     const origin = view.origin;
-    setActivePageId(origin.pageId);
-    setQuery(origin.query);
-    setSearchScope(origin.searchScope);
-    setEditing(origin.editing);
     if (origin.placeId) {
       const { placeId, placeScrollY, ...dashboardOrigin } = origin;
       setView({ kind: "place", groupId: placeId, origin: dashboardOrigin });
       scheduleMainScroll(placeScrollY ?? 0);
+    } else if (origin.kind === "systemWorkspace") {
+      setView(systemWorkspaceView(origin.workspaceId));
+      setEditing(false);
+      scheduleMainScroll(origin.scrollY);
     } else {
+      setActivePageId(origin.pageId);
+      setQuery(origin.query);
+      setSearchScope(origin.searchScope);
+      setEditing(origin.editing);
       setView(dashboardView(origin.pageId));
       scheduleMainScroll(origin.scrollY);
     }
@@ -884,10 +890,14 @@ export function AppShell() {
   const originPlace = currentViewOrigin?.placeId
     ? state.cards.find((card) => card.id === currentViewOrigin.placeId && card.cardType === "group") ?? null
     : null;
-  const originPage = currentViewOrigin
+  const originPage = currentViewOrigin?.kind === "dashboard"
     ? state.pages.find((page) => page.id === currentViewOrigin.pageId) ?? null
     : null;
-  const viewBackLabel = originPlace ? `返回 ${originPlace.title}` : `返回 ${originPage?.name ?? "頁面"}`;
+  const viewBackLabel = originPlace
+    ? `返回 ${originPlace.title}`
+    : currentViewOrigin?.kind === "systemWorkspace"
+      ? `返回 ${getSystemWorkspace(currentViewOrigin.workspaceId)?.title ?? "工作區"}`
+      : `返回 ${originPage?.name ?? "頁面"}`;
   const cardBeingEdited = overlay?.kind === "cardInspector"
     ? state.cards.find((card) => card.id === overlay.cardId) ?? null
     : null;
@@ -1048,7 +1058,7 @@ export function AppShell() {
           />
         ) : view.kind === "tool" && currentWidget ? (
           <section className="content-workspace tool-workspace">
-            {view.tool === "todo" && <TodoDialog embedded backLabel={viewBackLabel} widget={currentWidget} onClose={returnToOrigin} onDashboardChanged={adoptDashboard} onChanged={() => void getWidgetSummary(currentWidget.id).then((summary) => setWidgetSummaries((current) => ({ ...current, [currentWidget.id]: summary }))).catch(() => undefined)} />}
+            {view.tool === "todo" && currentWidget && <TodoDialog embedded backLabel={viewBackLabel} widget={currentWidget} onClose={returnToOrigin} onWidgetListChanged={async (listId) => adoptDashboard(await updateWidgetPreferences(currentWidget.id, listId))} onWidgetChanged={async () => adoptDashboard(await getDashboard())} onChanged={() => void getWidgetSummary(currentWidget.id).then((summary) => setWidgetSummaries((current) => ({ ...current, [currentWidget.id]: summary }))).catch(() => undefined)} />}
             {view.tool === "focus" && <FocusDialogSafe embedded backLabel={viewBackLabel} onClose={returnToOrigin} onChanged={(nextFocus) => setWidgetSummaries((current) => ({ ...current, [currentWidget.id]: { cardId: currentWidget.id, widgetKind: "focus", title: "Focus Timer", primaryValue: nextFocus.remainingSeconds == null ? `${nextFocus.settings.focusMinutes}:00` : `${Math.floor(nextFocus.remainingSeconds / 60).toString().padStart(2, "0")}:${(nextFocus.remainingSeconds % 60).toString().padStart(2, "0")}`, secondaryValue: nextFocus.status === "running" ? "進行中" : nextFocus.status === "paused" ? "已暫停" : "準備開始", items: [] } }))} />}
             {view.tool === "usage" && <UsageDialog embedded backLabel={viewBackLabel} onClose={returnToOrigin} onChanged={(summary, tracking) => setWidgetSummaries((current) => ({ ...current, [currentWidget.id]: { cardId: currentWidget.id, widgetKind: "usage", title: "使用時間", primaryValue: `${Math.floor(summary.totalSeconds / 3600)} 小時`, secondaryValue: tracking.enabled ? (summary.apps.slice(0, 3).map((app) => app.displayName).join(" · ") || "等待使用紀錄") : "追蹤預設關閉", items: [] } }))} />}
           </section>

@@ -3,7 +3,7 @@ import { getSystemWorkspace, getSystemWorkspaces } from "./featureRegistry";
 
 describe("system workspace registry", () => {
   it("exposes system workspaces through stable definitions", () => {
-    expect(getSystemWorkspaces().map((workspace) => workspace.id)).toEqual(["today", "activity", "calendar"]);
+    expect(getSystemWorkspaces().map((workspace) => workspace.id)).toEqual(["today", "todo", "activity", "calendar"]);
     expect(getSystemWorkspace("activity")).toMatchObject({
       id: "activity",
       title: "活動",

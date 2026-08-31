@@ -15,13 +15,17 @@ const overview: TodoOverview = { lists: [listA], items: [] };
 const createdOverview: TodoOverview = { lists: [listA, listB], items: [] };
 const widget: DashboardCard = { id: "widget", pageId: "home", parentGroupId: null, cardType: "widget", targetId: null, title: "待辦", subtitle: "", kind: "note", symbol: "", tone: "cyan", size: "wide", position: 0, noteText: "", resumeNote: "", launchEnabled: false, lastOpenedAt: null, widgetKind: "todo", widgetResourceId: "list-a" };
 const dashboard: DashboardState = { pages: [], cards: [widget] };
+const widgetAdapter = {
+  onWidgetListChanged: async (listId: string) => mocks.onDashboardChanged(await mocks.updateWidgetPreferences("widget", listId)),
+  onWidgetChanged: async () => undefined,
+};
 
 describe("TodoDialog list binding", () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.isTauriRuntime.mockReturnValue(true); mocks.getTodoOverview.mockResolvedValue(overview); mocks.createTodoList.mockResolvedValue(createdOverview); mocks.createTodoItem.mockResolvedValue(overview); mocks.setTodoPlannedFor.mockResolvedValue(overview); mocks.updateWidgetPreferences.mockResolvedValue(dashboard); });
 
   it("persists the widget binding when creating a list", async () => {
     const user = userEvent.setup();
-    render(<TodoDialog widget={widget} onClose={vi.fn()} onDashboardChanged={mocks.onDashboardChanged} onChanged={mocks.onChanged} />);
+    render(<TodoDialog widget={widget} {...widgetAdapter} onClose={vi.fn()} onChanged={mocks.onChanged} />);
     await user.type(await screen.findByRole("textbox", { name: "新增清單名稱" }), "Unity");
     await user.click(screen.getByRole("button", { name: "建立清單" }));
     await waitFor(() => expect(mocks.createTodoList).toHaveBeenCalledWith("Unity"));
@@ -33,7 +37,7 @@ describe("TodoDialog list binding", () => {
   it("keeps the created list and reports a binding failure", async () => {
     const user = userEvent.setup();
     mocks.updateWidgetPreferences.mockRejectedValue(new Error("persist failed"));
-    render(<TodoDialog widget={widget} onClose={vi.fn()} onDashboardChanged={mocks.onDashboardChanged} onChanged={mocks.onChanged} />);
+    render(<TodoDialog widget={widget} {...widgetAdapter} onClose={vi.fn()} onChanged={mocks.onChanged} />);
     await user.type(await screen.findByRole("textbox", { name: "新增清單名稱" }), "Unity");
     await user.click(screen.getByRole("button", { name: "建立清單" }));
     expect(await screen.findByDisplayValue("Unity")).toBeInTheDocument();
@@ -43,7 +47,7 @@ describe("TodoDialog list binding", () => {
 
   it("edits planning independently with Today, Tomorrow, Clear, and an arbitrary date", async () => {
     const user = userEvent.setup();
-    render(<TodoDialog widget={widget} onClose={vi.fn()} onDashboardChanged={mocks.onDashboardChanged} onChanged={mocks.onChanged} />);
+    render(<TodoDialog widget={widget} {...widgetAdapter} onClose={vi.fn()} onChanged={mocks.onChanged} />);
     await user.click(await screen.findByRole("button", { name: "＋ 新增" }));
     const input = screen.getByLabelText("安排日期");
     await user.click(screen.getByRole("button", { name: "今天" }));
@@ -63,7 +67,7 @@ describe("TodoDialog list binding", () => {
     const itemOverview = { lists: [listA], items: [active, completed] };
     mocks.getTodoOverview.mockResolvedValue(itemOverview);
     mocks.setTodoPlannedFor.mockResolvedValue({ ...itemOverview, items: [{ ...active, plannedFor: localDateKey() }, completed] });
-    render(<TodoDialog widget={widget} onClose={vi.fn()} onDashboardChanged={mocks.onDashboardChanged} onChanged={mocks.onChanged} />);
+    render(<TodoDialog widget={widget} {...widgetAdapter} onClose={vi.fn()} onChanged={mocks.onChanged} />);
     await user.click(await screen.findByRole("button", { name: "排到今天" }));
     expect(mocks.setTodoPlannedFor).toHaveBeenCalledWith("active", localDateKey());
     await user.click(screen.getByRole("button", { name: "已完成" }));
@@ -77,12 +81,19 @@ describe("TodoDialog list binding", () => {
     const base = { id: "planned", listId: "list-a", parentId: null, seriesId: null, title: "Planned", notes: "", status: "active" as const, priority: "none" as const, dueAt: null, plannedFor: localDateKey(), position: 0, recurrenceKind: "none" as const, recurrenceInterval: 1, reminderOffsetMinutes: null, reminderState: "none" as const, createdAt: 1, updatedAt: 1, completedAt: null, deletedAt: null };
     const due = { ...base, id: "due", title: "Due", dueAt: localDayBounds().start + 60, plannedFor: null, position: 1 };
     mocks.getTodoOverview.mockResolvedValue({ lists: [listA], items: [base, due] });
-    render(<TodoDialog widget={widget} onClose={vi.fn()} onDashboardChanged={mocks.onDashboardChanged} onChanged={mocks.onChanged} />);
+    render(<TodoDialog widget={widget} {...widgetAdapter} onClose={vi.fn()} onChanged={mocks.onChanged} />);
     await user.click(await screen.findByRole("button", { name: "今天安排" }));
     expect(screen.getByText("Planned")).toBeInTheDocument();
     expect(screen.queryByText("Due")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "今天到期" }));
     expect(screen.getByText("Due")).toBeInTheDocument();
     expect(screen.queryByText("Planned")).not.toBeInTheDocument();
+  });
+
+  it("can render standalone without persisting a widget preference", async () => {
+    const user = userEvent.setup();
+    render(<TodoDialog embedded showBackButton={false} onClose={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: /原本清單/ }));
+    expect(mocks.updateWidgetPreferences).not.toHaveBeenCalled();
   });
 });
