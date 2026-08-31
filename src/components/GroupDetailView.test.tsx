@@ -68,6 +68,15 @@ afterEach(() => {
 });
 
 describe("GroupDetailView", () => {
+  it.each([["返回 今天", "Today origin"], ["返回 遊戲", "Page origin"]])("renders the origin-aware back label for %s (%s)", async (backLabel) => {
+    const onBack = vi.fn();
+    renderView({ backLabel, onBack });
+    const back = screen.getByRole("button", { name: new RegExp(backLabel) });
+    expect(back).toBeInTheDocument();
+    fireEvent.click(back);
+    await waitFor(() => expect(onBack).toHaveBeenCalledTimes(1));
+  });
+
   it("在 500ms 後自動保存上次做到這裡", async () => {
     const props = renderView();
     fireEvent.click(screen.getByRole("button", { name: /接續點/ }));
