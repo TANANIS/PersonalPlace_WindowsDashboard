@@ -1277,7 +1277,7 @@ export function AppShell() {
                       onToggleTodo={(itemId, completed) => void toggleWidgetTodo(card.id, itemId, completed)}
                       onFocusAction={(action) => void controlWidgetFocus(card.id, action)}
                     />
-                  ) : <p className={card.cardType === "note" ? "note-card-preview" : undefined}>{card.cardType === "group" ? `${children.length} 個項目` : card.cardType === "note" ? card.noteText.trim() || zhTW.notes.empty : card.subtitle}</p>}
+                  ) : <p className={card.cardType === "note" ? "note-card-preview" : card.cardType === "group" ? "group-card-summary" : "card-subtitle"}>{card.cardType === "group" ? `${children.length} 個項目` : card.cardType === "note" ? card.noteText.trim() || zhTW.notes.empty : card.subtitle}</p>}
                 </div>
                 {targetProblem && !editing && <button type="button" className="card-repair-button" onClick={(event) => { event.stopPropagation(); setRepairError(null); setOverlay({ kind: "repair", cardId: card.id }); }}>! 重新定位</button>}
                 {editing && selected && <button type="button" className="card-more-button" data-no-card-drag onClick={(event) => { event.stopPropagation(); setCardEditError(null); if (card.cardType === "note") navigateToAppView({ kind: "note", cardId: card.id, origin: captureOrigin(), startEditing: true }); else setOverlay({ kind: "cardInspector", cardId: card.id }); }} aria-label={`編輯 ${card.title}`}>⋯</button>}

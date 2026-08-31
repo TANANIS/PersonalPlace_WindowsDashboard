@@ -1,0 +1,125 @@
+/* Stage 5 runtime recovery contracts.
+   These rules make component boundaries explicit after the visual migration;
+   they intentionally keep surfaces quiet and do not restore the 1.9 dashboard. */
+
+/* PageIcon is an inline SVG component: never let inherited inline content size it. */
+.page-icon { display: inline-grid; width: 24px; height: 24px; flex: 0 0 24px; place-items: center; color: currentColor; }
+.page-icon svg { display: block; width: 100%; height: 100%; overflow: visible; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+.page-icon .page-icon-accent { fill: currentColor; stroke: none; }
+.workspace-button .page-icon { width: 20px; height: 20px; flex-basis: 20px; }
+.page-symbol-field .page-icon { position: absolute; z-index: 1; left: 12px; width: 20px; height: 20px; pointer-events: none; }
+
+/* Browsing cards: one stable content column, bounded previews, and subtype policy. */
+.launcher-card { min-width: 0; isolation: isolate; }
+.launcher-card .card-heading, .launcher-card .card-copy { min-width: 0; }
+.launcher-card .card-copy { display: grid; min-height: 0; align-content: start; gap: 6px; }
+.launcher-card .card-copy h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.launcher-card .card-copy p { display: -webkit-box; min-width: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow-wrap: anywhere; }
+.launcher-grid:not(.is-editing) .launcher-card .card-subtitle { display: none; }
+.launcher-grid.is-editing .launcher-card .card-subtitle { color: var(--text-muted); font-size: 12px; }
+.launcher-card .card-open-surface { z-index: 2; }
+.launcher-card .card-heading, .launcher-card .card-copy { z-index: 3; pointer-events: none; }
+.launcher-card .card-copy input, .launcher-card .card-copy button { pointer-events: auto; }
+.launcher-card .item-symbol { flex: 0 0 40px; }
+.launcher-card .system-icon { display: block; width: 28px; height: 28px; max-width: 100%; max-height: 100%; object-fit: contain; }
+.launcher-card .card-preview-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.launcher-card.preview-text .card-preview-media { max-height: 100%; }
+.launcher-card .card-repair-button, .launcher-card .card-more-button { position: relative; z-index: 5; align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-card { min-height: 190px; }
+.group-card .card-copy { max-width: min(560px, 100%); }
+.group-card .card-copy h2 { font-size: clamp(1.15rem, 2vw, 1.7rem); }
+.group-symbol-stack { display: grid; width: 44px; min-width: 44px; height: 44px; grid-template-columns: repeat(2, 20px); grid-template-rows: repeat(2, 20px); gap: 3px; place-items: center; }
+.group-symbol-stack > span { display: grid; width: 20px; height: 20px; place-items: center; overflow: hidden; color: var(--accent); font-size: 14px; }
+.group-symbol-stack img { display: block; width: 18px; height: 18px; object-fit: contain; }
+.note-card .card-copy { min-height: 0; }
+.note-card .note-card-preview { display: -webkit-box; color: var(--text-secondary); -webkit-line-clamp: 5; }
+.widget-card { min-height: 174px; }
+.widget-card .card-copy { padding-right: 0; }
+.widget-card .card-copy > h2 { color: var(--text-secondary); font-size: 13px; font-weight: 700; }
+
+/* Persisted legacy widgets remain usable, but remain quiet contextual previews. */
+.widget-preview { display: grid; min-width: 0; gap: 10px; color: var(--text-secondary); }
+.widget-preview-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; }
+.widget-preview-heading strong { min-width: 0; overflow: hidden; color: var(--text-strong); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.widget-preview-heading button, .widget-preview button { position: relative; z-index: 6; padding: 4px 6px; color: var(--accent); cursor: pointer; }
+.widget-todo-list { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.widget-todo-list li, .widget-todo-list label { min-width: 0; }
+.widget-todo-list label { display: flex; align-items: center; gap: 7px; }
+.widget-todo-list label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.widget-empty { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.widget-focus-clock { display: grid; gap: 2px; }
+.widget-focus-clock small, .widget-focus-clock span { color: var(--text-muted); font-size: 11px; }
+.widget-focus-clock strong { color: var(--text-strong); font-size: 27px; font-variant-numeric: tabular-nums; }
+.widget-focus-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+.widget-focus-actions button { min-height: 28px; padding: 3px 8px; border: 1px solid var(--border-soft); border-radius: 6px; color: var(--text-secondary); background: var(--surface-2); cursor: pointer; }
+.widget-focus-actions .compact-primary { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border-soft)); }
+.widget-usage-bars { display: grid; gap: 8px; }
+.widget-usage-bars > div { display: grid; min-width: 0; gap: 4px; }
+.widget-usage-bars span { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
+.widget-usage-bars b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.widget-usage-bars small { color: var(--text-muted); white-space: nowrap; }
+.widget-usage-bars i { display: block; height: 3px; overflow: hidden; background: var(--surface-3); }
+.widget-usage-bars em { display: block; height: 100%; background: var(--accent); }
+
+/* Today rows are content-first: reset browser list markers and keep context in its own line. */
+.today-todos, .today-attention-todos { margin: 0; padding: 0; list-style: none; }
+.today-todos li, .today-attention-todos li { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.today-todos label, .today-attention-todos > span { display: flex; min-width: 0; align-items: flex-start; gap: var(--space-3); }
+.today-todos label > span, .today-attention-todos > span { display: grid; min-width: 0; gap: 3px; }
+.today-todos strong, .today-attention-todos strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.today-todos small, .today-attention-todos small { color: var(--text-muted); }
+.today-todo-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 4px; }
+
+/* Managers and dialogs: bounded rows, explicit form sizing, no icon takeover. */
+.dialog form { min-width: 0; }
+.dialog label { display: grid; min-width: 0; gap: 6px; color: var(--text-secondary); }
+.dialog input, .dialog select, .dialog textarea { min-width: 0; max-width: 100%; padding: 10px 12px; }
+.dialog textarea { min-height: 120px; resize: vertical; }
+.dialog-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: var(--space-5); border-top: 1px solid var(--border-soft); }
+.settings-list > * { min-width: 0; }
+.settings-list > .calendar-settings, .settings-list > .settings-theme { padding: var(--space-4); }
+.calendar-settings { display: grid; gap: 10px; min-width: 0; }
+.calendar-settings h3, .calendar-settings p { margin: 0; }
+.settings-section-description, .calendar-settings-empty { color: var(--text-muted); font-size: 13px; }
+.calendar-settings-sources { display: grid; gap: 8px; min-width: 0; }
+.calendar-settings-sources > div { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border-soft); }
+.calendar-settings-sources > div > span { display: grid; min-width: 0; gap: 3px; }
+.calendar-settings-sources strong, .calendar-settings-sources small { overflow: hidden; text-overflow: ellipsis; }
+.calendar-settings-sources small { color: var(--text-muted); line-height: 1.45; }
+.calendar-settings-sources button, .calendar-settings-import, .cache-clear-button { flex: 0 0 auto; min-height: 34px; padding: 0 10px; border: 1px solid var(--border-soft); border-radius: var(--radius-control); color: var(--text-secondary); background: var(--surface-2); cursor: pointer; }
+.settings-theme > div:first-child { display: grid; gap: 4px; }
+.settings-theme > div:first-child small { color: var(--text-muted); line-height: 1.45; }
+.page-manager-dialog { width: min(860px, calc(100vw - 32px)); max-width: 860px; }
+.page-manager-list { display: grid; max-height: min(58vh, 480px); gap: 8px; overflow: auto; padding: var(--space-4) var(--space-5); }
+.page-manager-row { display: grid; grid-template-columns: 32px 68px minmax(120px, 1fr) repeat(4, 40px); min-width: 0; align-items: center; gap: 8px; }
+.page-manager-row input, .page-manager-row select { width: 100%; min-width: 0; height: 40px; }
+.page-manager-row button { min-width: 0; min-height: 36px; }
+.page-manager-row .page-manager-icon-action { width: 40px; padding: 0; border: 1px solid var(--border-soft); border-radius: var(--radius-control); background: var(--surface-2); cursor: pointer; }
+.page-manager-row .page-manager-icon-action:disabled { background: transparent; }
+.page-manager-actions { justify-content: space-between; }
+.search-backdrop .global-search-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
+.add-panel, .card-edit-dialog, .repair-dialog, .backup-dialog, .note-dialog, .note-view-dialog, .guide-dialog { max-width: min(720px, calc(100vw - 32px)); }
+.add-panel-actions, .repair-choices, .recovery-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ingest-added-list, .ingest-problem-list { margin: 8px 0; padding-left: 20px; }
+
+/* Theme atmospheres stay neutral-first, with only a restrained surface tint. */
+:root[data-color-theme="violet"] { --surface-1: #151121; --surface-2: #1d1830; --surface-3: #2a2340; --surface-input: #120f1c; }
+:root[data-color-theme="mint"] { --surface-1: #101d19; --surface-2: #172923; --surface-3: #213a31; --surface-input: #0c1815; }
+:root[data-color-theme="amber"] { --surface-1: #1e1812; --surface-2: #292017; --surface-3: #3a2d20; --surface-input: #17120e; }
+:root[data-color-theme="rose"] { --surface-1: #1f141b; --surface-2: #2b1b25; --surface-3: #3b2631; --surface-input: #180d13; }
+
+@media (max-width: 760px) {
+  .page-manager-list { padding-inline: var(--space-4); }
+  .page-manager-row { grid-template-columns: 28px 58px minmax(0, 1fr) repeat(4, 36px); gap: 6px; }
+  .page-manager-row .page-manager-icon-action { width: 36px; }
+  .page-manager-row .page-manager-icon-action:nth-of-type(2), .page-manager-row .page-manager-icon-action:nth-of-type(3) { display: none; }
+  .dialog-actions { padding: var(--space-4); }
+  .today-todos li, .today-attention-todos li { align-items: flex-start; }
+  .today-todo-actions { flex-direction: column; }
+}
+@media (max-width: 520px) {
+  .page-manager-row { grid-template-columns: 26px 52px minmax(0, 1fr) repeat(2, 36px); }
+  .page-manager-row .page-manager-icon-action:nth-of-type(1) { grid-column: 4; }
+  .page-manager-row .page-manager-icon-action:nth-of-type(4) { grid-column: 5; }
+  .launcher-card { min-height: 128px; padding: var(--space-4); }
+}

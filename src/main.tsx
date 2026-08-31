@@ -11,6 +11,7 @@ import "./styles/dashboard.css";
 import "./styles/place.css";
 import "./styles/todo.css";
 import "./styles/support-workspaces.css";
+import "./styles/stage5-recovery.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
