@@ -1,9 +1,9 @@
 .app-shell.is-focus-mode .main-content { width: 100%; margin: 0; padding: 0; background: var(--app-bg); }
 .focus-mode { min-height: 100%; display: grid; place-items: center; padding: clamp(40px, 10vw, 112px) 24px; }
 .focus-mode-panel { width: min(var(--content-focus), 100%); padding: 0; border: 0; background: transparent; box-shadow: none; text-align: center; }
-.focus-mode-panel h1 { max-width: 18ch; margin: var(--space-2) auto var(--space-4); color: var(--text-strong); font-size: clamp(32px, 6vw, 44px); line-height: 1.12; letter-spacing: -.035em; }
+.focus-mode-panel h1 { max-width: 18ch; margin: var(--space-2) auto var(--space-4); color: var(--text-strong); font-size: clamp(38px, 6vw, 52px); font-weight: 760; line-height: 1.08; letter-spacing: -.035em; }
 .focus-mode-eyebrow, .focus-mode-status { margin: 0; color: var(--text-muted); font-size: 12px; }
-.focus-mode-clock { display: block; margin: var(--space-7) 0 var(--space-2); color: var(--text-primary); font-size: clamp(54px, 11vw, 92px); font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.focus-mode-clock { display: block; margin: var(--space-6) 0 var(--space-2); color: var(--text-secondary); font-size: clamp(48px, 8vw, 74px); font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
 .focus-mode-detail, .focus-mode-resume, .focus-completion-time { margin: 0 auto; color: var(--text-secondary); }
 .focus-mode-resume { margin-top: var(--space-2); }
 .focus-mode-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2); margin-top: var(--space-5); }
