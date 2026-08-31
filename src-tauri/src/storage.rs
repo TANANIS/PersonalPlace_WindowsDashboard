@@ -8,7 +8,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -665,6 +665,23 @@ fn configure_and_migrate(connection: &Connection) -> Result<(), String> {
         if let Err(error) = migration {
             let _ = connection.execute_batch("ROLLBACK;");
             return Err(format!("無法將 Personal Place 升級為 schema v5：{error}"));
+        }
+    }
+
+    let version_after_v5: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|error| format!("無法確認 schema v5：{error}"))?;
+    if version_after_v5 == 5 {
+        let migration = connection.execute_batch(
+            "BEGIN IMMEDIATE;
+             ALTER TABLE todo_items ADD COLUMN planned_for TEXT;
+             CREATE INDEX todo_items_planned_for ON todo_items(status, planned_for);
+             PRAGMA user_version = 6;
+             COMMIT;",
+        );
+        if let Err(error) = migration {
+            let _ = connection.execute_batch("ROLLBACK;");
+            return Err(format!("無法將 Personal Place 升級為 schema v6：{error}"));
         }
     }
 
@@ -1414,6 +1431,8 @@ mod tests {
                 .execute_batch(
                     "DROP TABLE calendar_events;
                      DROP TABLE calendar_sources;
+                     DROP INDEX todo_items_planned_for;
+                     ALTER TABLE todo_items DROP COLUMN planned_for;
                      PRAGMA user_version = 4;",
                 )
                 .expect("downgrade fixture schema marker");
@@ -1430,7 +1449,7 @@ mod tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
         let calendar_tables: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master
@@ -1448,6 +1467,85 @@ mod tests {
             .filter_map(Result::ok)
             .count();
         assert_eq!(migration_backups, 1);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn schema_v5_todo_data_migrates_to_v6_with_null_planning() {
+        let root = std::env::temp_dir().join(format!(
+            "personal-place-v5-v6-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create fixture root");
+        let database = root.join("personal-place.db");
+        let store = WorkspaceStore::open(&database).expect("create current database");
+        store
+            .initialize(
+                None,
+                &HashMap::new(),
+                Path::new("missing-registry"),
+                &root.join("legacy"),
+            )
+            .expect("initialize fixture");
+        let (_, list_id) = store.create_todo_list("Migration").expect("create list");
+        store
+            .create_todo_item(
+                &list_id,
+                &crate::todo::TodoItemInput {
+                    title: "Preserve me".to_string(),
+                    notes: "v5 data".to_string(),
+                    priority: "high".to_string(),
+                    due_at: None,
+                    planned_for: None,
+                    recurrence_kind: "none".to_string(),
+                    recurrence_interval: 1,
+                    reminder_offset_minutes: None,
+                    parent_id: None,
+                },
+            )
+            .expect("create todo");
+        {
+            let connection = store.lock().expect("lock fixture");
+            connection
+                .execute_batch(
+                    "DROP INDEX todo_items_planned_for;
+                     ALTER TABLE todo_items DROP COLUMN planned_for;
+                     PRAGMA user_version = 5;",
+                )
+                .expect("downgrade fixture to real v5 shape");
+        }
+        drop(store);
+
+        let migrated = WorkspaceStore::open(&database).expect("migrate v5 fixture");
+        let connection = migrated.lock().expect("lock migrated fixture");
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        let row: (String, String, Option<String>) = connection
+            .query_row(
+                "SELECT title, notes, planned_for FROM todo_items WHERE title = 'Preserve me'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(version, 6);
+        assert_eq!(
+            row,
+            ("Preserve me".to_string(), "v5 data".to_string(), None)
+        );
+        drop(connection);
+        drop(migrated);
+        assert_eq!(
+            fs::read_dir(root.join("backups").join("schema-migrations"))
+                .expect("read migration backups")
+                .filter_map(Result::ok)
+                .count(),
+            1
+        );
         let _ = fs::remove_dir_all(root);
     }
 

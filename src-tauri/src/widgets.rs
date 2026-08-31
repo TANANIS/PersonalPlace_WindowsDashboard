@@ -45,7 +45,11 @@ impl WorkspaceStore {
             return Err("不支援這種小工具。".to_string());
         }
         let widget_id = unique_id("widget");
-        let list_id = (widget_kind == "todo").then(|| todo_list_id.map(str::to_owned).unwrap_or_else(|| unique_id("todo-list")));
+        let list_id = (widget_kind == "todo").then(|| {
+            todo_list_id
+                .map(str::to_owned)
+                .unwrap_or_else(|| unique_id("todo-list"))
+        });
         let creates_list = widget_kind == "todo" && todo_list_id.is_none();
         let now = Utc::now().timestamp();
         let dashboard = self.mutate_with_undo(|transaction| {
@@ -354,10 +358,24 @@ mod tests {
     #[test]
     fn todo_widget_can_bind_existing_active_list_without_creating_another() {
         let store = WorkspaceStore::in_memory().unwrap();
-        store.initialize(None, &std::collections::HashMap::new(), std::path::Path::new("missing"), std::path::Path::new("backups")).unwrap();
+        store
+            .initialize(
+                None,
+                &std::collections::HashMap::new(),
+                std::path::Path::new("missing"),
+                std::path::Path::new("backups"),
+            )
+            .unwrap();
         let (_, list_id) = store.create_todo_list("Unity").unwrap();
-        let created = store.create_widget("home", None, "todo", Some(&list_id)).unwrap();
-        let widget = created.dashboard.cards.iter().find(|card| card.id == created.widget_id).unwrap();
+        let created = store
+            .create_widget("home", None, "todo", Some(&list_id))
+            .unwrap();
+        let widget = created
+            .dashboard
+            .cards
+            .iter()
+            .find(|card| card.id == created.widget_id)
+            .unwrap();
         assert_eq!(widget.widget_resource_id.as_deref(), Some(list_id.as_str()));
         assert_eq!(widget.title, "Unity");
         assert_eq!(store.get_todo_overview().unwrap().lists.len(), 1);
@@ -366,33 +384,123 @@ mod tests {
     #[test]
     fn todo_widget_titles_follow_list_renames_and_switches_for_all_references() {
         let store = WorkspaceStore::in_memory().unwrap();
-        store.initialize(None, &std::collections::HashMap::new(), std::path::Path::new("missing"), std::path::Path::new("backups")).unwrap();
+        store
+            .initialize(
+                None,
+                &std::collections::HashMap::new(),
+                std::path::Path::new("missing"),
+                std::path::Path::new("backups"),
+            )
+            .unwrap();
         let (_, unity_id) = store.create_todo_list("Unity").unwrap();
         let (_, art_id) = store.create_todo_list("畫畫").unwrap();
-        let first = store.create_widget("home", None, "todo", Some(&unity_id)).unwrap();
-        let second = store.create_widget("home", None, "todo", Some(&unity_id)).unwrap();
+        let first = store
+            .create_widget("home", None, "todo", Some(&unity_id))
+            .unwrap();
+        let second = store
+            .create_widget("home", None, "todo", Some(&unity_id))
+            .unwrap();
         let focus = store.create_widget("home", None, "focus", None).unwrap();
         let usage = store.create_widget("home", None, "usage", None).unwrap();
-        let dashboard = store.set_todo_widget_list(&first.widget_id, &art_id).unwrap();
-        assert_eq!(dashboard.cards.iter().find(|card| card.id == first.widget_id).unwrap().title, "畫畫");
-        assert_eq!(dashboard.cards.iter().find(|card| card.id == second.widget_id).unwrap().title, "Unity");
-        assert_eq!(dashboard.cards.iter().find(|card| card.id == focus.widget_id).unwrap().title, "Focus Timer");
-        assert_eq!(dashboard.cards.iter().find(|card| card.id == usage.widget_id).unwrap().title, "使用時間");
-        store.update_todo_list(&unity_id, "Unity 開發", false).unwrap();
+        let dashboard = store
+            .set_todo_widget_list(&first.widget_id, &art_id)
+            .unwrap();
+        assert_eq!(
+            dashboard
+                .cards
+                .iter()
+                .find(|card| card.id == first.widget_id)
+                .unwrap()
+                .title,
+            "畫畫"
+        );
+        assert_eq!(
+            dashboard
+                .cards
+                .iter()
+                .find(|card| card.id == second.widget_id)
+                .unwrap()
+                .title,
+            "Unity"
+        );
+        assert_eq!(
+            dashboard
+                .cards
+                .iter()
+                .find(|card| card.id == focus.widget_id)
+                .unwrap()
+                .title,
+            "Focus Timer"
+        );
+        assert_eq!(
+            dashboard
+                .cards
+                .iter()
+                .find(|card| card.id == usage.widget_id)
+                .unwrap()
+                .title,
+            "使用時間"
+        );
+        store
+            .update_todo_list(&unity_id, "Unity 開發", false)
+            .unwrap();
         let dashboard = store.get_dashboard().unwrap();
-        assert_eq!(dashboard.cards.iter().find(|card| card.id == second.widget_id).unwrap().title, "Unity 開發");
-        assert_eq!(dashboard.cards.iter().find(|card| card.id == first.widget_id).unwrap().title, "畫畫");
-        assert_eq!(dashboard.cards.iter().find(|card| card.id == focus.widget_id).unwrap().title, "Focus Timer");
-        assert!(store.update_dashboard_card(&second.widget_id, crate::dashboard::CardMutation { title: Some("手動改名".to_string()), ..Default::default() }).is_err());
+        assert_eq!(
+            dashboard
+                .cards
+                .iter()
+                .find(|card| card.id == second.widget_id)
+                .unwrap()
+                .title,
+            "Unity 開發"
+        );
+        assert_eq!(
+            dashboard
+                .cards
+                .iter()
+                .find(|card| card.id == first.widget_id)
+                .unwrap()
+                .title,
+            "畫畫"
+        );
+        assert_eq!(
+            dashboard
+                .cards
+                .iter()
+                .find(|card| card.id == focus.widget_id)
+                .unwrap()
+                .title,
+            "Focus Timer"
+        );
+        assert!(store
+            .update_dashboard_card(
+                &second.widget_id,
+                crate::dashboard::CardMutation {
+                    title: Some("手動改名".to_string()),
+                    ..Default::default()
+                }
+            )
+            .is_err());
     }
 
     #[test]
     fn todo_widget_rejects_missing_or_archived_list() {
         let store = WorkspaceStore::in_memory().unwrap();
-        store.initialize(None, &std::collections::HashMap::new(), std::path::Path::new("missing"), std::path::Path::new("backups")).unwrap();
-        assert!(store.create_widget("home", None, "todo", Some("missing-list")).is_err());
+        store
+            .initialize(
+                None,
+                &std::collections::HashMap::new(),
+                std::path::Path::new("missing"),
+                std::path::Path::new("backups"),
+            )
+            .unwrap();
+        assert!(store
+            .create_widget("home", None, "todo", Some("missing-list"))
+            .is_err());
         let (_, list_id) = store.create_todo_list("舊清單").unwrap();
         store.update_todo_list(&list_id, "舊清單", true).unwrap();
-        assert!(store.create_widget("home", None, "todo", Some(&list_id)).is_err());
+        assert!(store
+            .create_widget("home", None, "todo", Some(&list_id))
+            .is_err());
     }
 }

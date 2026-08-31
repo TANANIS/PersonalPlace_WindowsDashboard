@@ -4,12 +4,20 @@ Personal Place 是 Windows 上、本機優先的個人數位首頁。你可以�
 
 ## 下載
 
-目前版本：**1.7.4**
+目前版本：**1.9.0**
 
-- [免安裝版 EXE（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.7.4/releases/Personal-Place-1.7.4/Personal-Place-1.7.4-portable.exe)
-- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.7.4/releases/Personal-Place-1.7.4/SHA256SUMS.txt)
+- [免安裝版 EXE（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.9.0/releases/Personal-Place-1.9.0/Personal-Place-1.9.0-portable.exe)
+- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.9.0/releases/Personal-Place-1.9.0/SHA256SUMS.txt)
 
-v1.7.4 的公開下載目前只保留免安裝版；因應 Windows Defender 對 installer 的機器學習偵測，安裝版連結暫時下架。免安裝版未使用受信任的 Authenticode 憑證簽章，Windows 仍可能顯示 SmartScreen、無法驗證發行者或安全性情報警告；SHA-256 只用來驗證下載內容是否與本 repository 發布的檔案一致。
+v1.9.0 的公開下載只提供免安裝版；因應 Windows Defender 對 installer 的機器學習偵測，安裝版不公開。portable EXE 未使用受信任的 Authenticode 憑證簽章，Windows 仍可能顯示 SmartScreen、無法驗證發行者或安全性情報警告；SHA-256 只用來驗證下載內容是否與本 repository 發布的檔案一致。
+
+## 1.9.0：Today Intent 與工作流程教學
+
+- Todo 支援 `plannedFor` 本機日期，可安排今天、明天或指定日期；`dueAt` 截止時間與安排日期是不同概念。
+- Today 以「今天安排」作為明確計畫，並分開顯示「今天到期」與「逾期」，不再自動挑選任意待辦。
+- recurring Todo 的下一次 occurrence 不會繼承 `plannedFor`；Todo 清單、備份與 schema migration 會保留安排資料。
+- 保留 Today ↔ Focus Context Bridge：Todo 與 Place 可開始、暫停、繼續或結束 Focus。
+- Settings 新手教學更新為五步核心 workflow，涵蓋 Place、Todo、Today、Focus、Calendar 與 Activity。
 
 ## 1.7.4：Today 與接續點
 

@@ -6,7 +6,7 @@ interface GuideDialogProps {
   onClose: () => void;
 }
 
-const stepSymbols = ["＋", "↕", "▦", "⌕"] as const;
+const stepSymbols = ["▦", "✓", "☀", "◉", "↺"] as const;
 
 export function GuideDialog({ onClose }: GuideDialogProps) {
   const [stepIndex, setStepIndex] = useState(0);

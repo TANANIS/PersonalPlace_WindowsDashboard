@@ -893,9 +893,14 @@ fn merge_detail_items(mut items: Vec<ActivityDetailItem>) -> Vec<ActivityDetailI
     let mut merged: Vec<ActivityDetailItem> = Vec::new();
     for item in items {
         if let Some(previous) = merged.last_mut() {
-            let gap = parse_timestamp(&previous.started_at).zip(parse_timestamp(&item.ended_at))
-                .map(|(start, end)| start - end).unwrap_or(i64::MAX);
-            if previous.title == item.title && previous.url == item.url && (0..=MERGE_GAP_SECONDS).contains(&gap) {
+            let gap = parse_timestamp(&previous.started_at)
+                .zip(parse_timestamp(&item.ended_at))
+                .map(|(start, end)| start - end)
+                .unwrap_or(i64::MAX);
+            if previous.title == item.title
+                && previous.url == item.url
+                && (0..=MERGE_GAP_SECONDS).contains(&gap)
+            {
                 previous.started_at = item.started_at;
                 previous.duration_seconds += item.duration_seconds;
                 continue;

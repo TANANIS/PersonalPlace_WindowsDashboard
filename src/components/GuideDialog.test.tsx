@@ -4,25 +4,29 @@ import { describe, expect, it, vi } from "vitest";
 import { GuideDialog } from "./GuideDialog";
 
 describe("GuideDialog", () => {
-  it("依序顯示四個步驟並在完成時關閉", async () => {
+  it("依序顯示五個步驟並在完成時關閉", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
 
     render(<GuideDialog onClose={onClose} />);
 
-    expect(screen.getByRole("heading", { name: "加入你的內容" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "建立你的空間" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "上一步" })).toBeDisabled();
-    expect(screen.getByLabelText("第 1 / 4 步")).toBeInTheDocument();
+    expect(screen.getByLabelText("第 1 / 5 步")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "下一步" }));
-    expect(screen.getByRole("heading", { name: "整理你的首頁" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "記下要做的事" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "下一步" }));
-    expect(screen.getByRole("heading", { name: "建立一個地方" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "從 Today 開始一天" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "下一步" }));
-    expect(screen.getByRole("heading", { name: "平常這樣使用" })).toBeInTheDocument();
-    expect(screen.getByLabelText("第 4 / 4 步")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "開始專注，接著做" })).toBeInTheDocument();
+    expect(screen.getByLabelText("第 4 / 5 步")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "下一步" }));
+    expect(screen.getByRole("heading", { name: "回顧與保護你的資料" })).toBeInTheDocument();
+    expect(screen.getByLabelText("第 5 / 5 步")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "完成" }));
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -48,7 +52,7 @@ describe("GuideDialog", () => {
 
     await user.click(next);
     await user.click(screen.getByRole("button", { name: "上一步" }));
-    expect(screen.getByRole("heading", { name: "加入你的內容" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "建立你的空間" })).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledTimes(1);

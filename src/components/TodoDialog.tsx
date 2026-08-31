@@ -10,6 +10,7 @@ import {
   moveTodoItems,
   platformErrorMessage,
   setTodoCompleted,
+  setTodoPlannedFor,
   updateTodoItem,
   updateTodoList,
   updateWidgetPreferences,
@@ -21,8 +22,9 @@ import {
 } from "../lib/platform";
 import { useModalFocus } from "../lib/accessibility";
 import { usePointerReorder } from "../lib/pointerReorder";
+import { localDateKey, localDayBounds, localTomorrowKey } from "../lib/localDate";
 
-type TodoFilter = "all" | "today" | "upcoming" | "overdue" | "completed";
+type TodoFilter = "all" | "plannedToday" | "dueToday" | "upcoming" | "overdue" | "completed";
 
 interface TodoDialogProps {
   widget: DashboardCard;
@@ -38,6 +40,7 @@ const emptyInput: TodoItemInput = {
   notes: "",
   priority: "none",
   dueAt: null,
+  plannedFor: null,
   recurrenceKind: "none",
   recurrenceInterval: 1,
   reminderOffsetMinutes: null,
@@ -86,10 +89,11 @@ function formatDue(timestamp: number | null): string {
   }).format(new Date(timestamp * 1000));
 }
 
-function startOfToday(): number {
-  const date = new Date();
-  date.setHours(0, 0, 0, 0);
-  return Math.floor(date.getTime() / 1000);
+function formatPlanned(value: string, today = localDateKey()): string {
+  if (value === today) return "今天安排";
+  if (value === localTomorrowKey()) return "明天安排";
+  const [, month, day] = value.split("-");
+  return `${Number(month)}/${Number(day)} 安排`;
 }
 
 function itemToInput(item: TodoItem): TodoItemInput {
@@ -98,6 +102,7 @@ function itemToInput(item: TodoItem): TodoItemInput {
     notes: item.notes,
     priority: item.priority,
     dueAt: item.dueAt,
+    plannedFor: item.plannedFor,
     recurrenceKind: item.recurrenceKind,
     recurrenceInterval: item.recurrenceInterval,
     reminderOffsetMinutes: item.reminderOffsetMinutes,
@@ -133,18 +138,18 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged, emb
   const activeList = overview?.lists.find((list) => list.id === listId) ?? null;
   const listItems = useMemo(() => {
     if (!overview) return [];
-    const now = Math.floor(Date.now() / 1000);
-    const today = startOfToday();
-    const tomorrow = today + 24 * 60 * 60;
+    const { start: today, tomorrow } = localDayBounds();
+    const todayKey = localDateKey();
     const needle = query.trim().toLocaleLowerCase("zh-TW");
     return overview.items.filter((item) => {
       if (item.listId !== listId) return false;
       if (needle && !`${item.title}\n${item.notes}`.toLocaleLowerCase("zh-TW").includes(needle)) return false;
       if (filter === "completed") return item.status === "completed";
       if (item.status !== "active") return false;
-      if (filter === "today") return item.dueAt != null && item.dueAt >= today && item.dueAt < tomorrow;
+      if (filter === "plannedToday") return item.plannedFor === todayKey;
+      if (filter === "dueToday") return item.dueAt != null && item.dueAt >= today && item.dueAt < tomorrow;
       if (filter === "upcoming") return item.dueAt != null && item.dueAt >= tomorrow;
-      if (filter === "overdue") return item.dueAt != null && item.dueAt < now;
+      if (filter === "overdue") return item.dueAt != null && item.dueAt < Date.now() / 1000;
       return true;
     }).sort((left, right) => left.position - right.position);
   }, [filter, listId, overview, query]);
@@ -251,11 +256,13 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged, emb
           <strong>{item.title}</strong>
           <span>
             {item.dueAt != null && <small>{overdue ? "已逾期 · " : ""}{formatDue(item.dueAt)}</small>}
+            {item.plannedFor && <small>{formatPlanned(item.plannedFor)}</small>}
             {item.priority !== "none" && <small className={`priority-${item.priority}`}>{priorityLabels[item.priority]}優先</small>}
             {item.recurrenceKind !== "none" && <small>{recurrenceLabels[item.recurrenceKind]}</small>}
           </span>
         </button>
         <div className="todo-item-actions">
+          {item.status === "active" && <button type="button" disabled={busy} onClick={() => void run(() => setTodoPlannedFor(item.id, item.plannedFor === localDateKey() ? null : localDateKey()))}>{item.plannedFor === localDateKey() ? "移出今天" : "排到今天"}</button>}
           <button type="button" disabled={busy || index <= 0} aria-label={`上移 ${item.title}`} onClick={() => void run(() => moveTodoItems([item.id], item.listId, item.parentId, index - 1))}>↑</button>
           <button type="button" disabled={busy || index >= siblings.length - 1} aria-label={`下移 ${item.title}`} onClick={() => void run(() => moveTodoItems([item.id], item.listId, item.parentId, index + 1))}>↓</button>
           <button type="button" className="danger-text" disabled={busy} aria-label={`刪除 ${item.title}`} onClick={() => void run(() => deleteTodoItems([item.id]))}>×</button>
@@ -289,9 +296,9 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged, emb
           <main className="todo-main">
             <div className="todo-toolbar">
               <div className="todo-filters" aria-label="篩選待辦">
-                {(["all", "today", "upcoming", "overdue", "completed"] as TodoFilter[]).map((value) => (
+                {(["all", "plannedToday", "dueToday", "upcoming", "overdue", "completed"] as TodoFilter[]).map((value) => (
                   <button type="button" className={filter === value ? "is-active" : ""} key={value} onClick={() => setFilter(value)}>
-                    {{ all: "全部", today: "今天", upcoming: "即將到期", overdue: "已逾期", completed: "已完成" }[value]}
+                    {{ all: "全部", plannedToday: "今天安排", dueToday: "今天到期", upcoming: "即將到期", overdue: "已逾期", completed: "已完成" }[value]}
                   </button>
                 ))}
               </div>
@@ -330,6 +337,7 @@ export function TodoDialog({ widget, onClose, onDashboardChanged, onChanged, emb
               <textarea value={draft.notes} maxLength={10000} rows={2} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} placeholder="備註（選填）" aria-label="待辦備註" />
               <div className="todo-editor-grid">
                 <label>截止時間<input type="datetime-local" value={localInputValue(draft.dueAt)} onChange={(event) => setDraft((current) => ({ ...current, dueAt: fromLocalInput(event.target.value), reminderOffsetMinutes: event.target.value ? current.reminderOffsetMinutes : null }))} /></label>
+                <label>安排日期<input aria-label="安排日期" type="date" value={draft.plannedFor ?? ""} onChange={(event) => setDraft((current) => ({ ...current, plannedFor: event.target.value || null }))} /><span className="todo-date-actions"><button type="button" onClick={() => setDraft((current) => ({ ...current, plannedFor: localDateKey() }))}>今天</button><button type="button" onClick={() => setDraft((current) => ({ ...current, plannedFor: localTomorrowKey() }))}>明天</button><button type="button" onClick={() => setDraft((current) => ({ ...current, plannedFor: null }))}>清除</button></span></label>
                 <label>優先順序<select value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value as TodoPriority }))}>{Object.entries(priorityLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
                 <label>重複<select value={draft.recurrenceKind} onChange={(event) => setDraft((current) => ({ ...current, recurrenceKind: event.target.value as TodoRecurrence }))}>{Object.entries(recurrenceLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
                 {draft.recurrenceKind.startsWith("custom_") && <label>間隔<input type="number" min="1" max="365" value={draft.recurrenceInterval} onChange={(event) => setDraft((current) => ({ ...current, recurrenceInterval: Math.max(1, Number(event.target.value) || 1) }))} /></label>}

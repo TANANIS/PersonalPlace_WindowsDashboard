@@ -3,7 +3,7 @@ use crate::{
     dashboard::{self, DashboardCard, DashboardState, Page},
     ingest,
     storage::WorkspaceStore,
-    todo::{TodoItem, TodoList},
+    todo::{validate_planned_for, TodoItem, TodoList},
 };
 use rusqlite::{params, MAIN_DB};
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ use std::{
 };
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipArchive, ZipWriter};
 
-const FORMAT_VERSION: u32 = 3;
+const FORMAT_VERSION: u32 = 4;
 const MAX_MANIFEST_BYTES: u64 = 128 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -214,7 +214,7 @@ fn consistent_manifest(store: &WorkspaceStore) -> Result<BackupManifest, String>
     };
     let todo_items = {
         let mut statement = transaction
-            .prepare("SELECT id, list_id, parent_id, series_id, title, notes, status, priority, due_at, position, recurrence_kind, recurrence_interval, reminder_offset_minutes, reminder_state, created_at, updated_at, completed_at, deleted_at FROM todo_items ORDER BY list_id, parent_id, position, id")
+            .prepare("SELECT id, list_id, parent_id, series_id, title, notes, status, priority, due_at, planned_for, position, recurrence_kind, recurrence_interval, reminder_offset_minutes, reminder_state, created_at, updated_at, completed_at, deleted_at FROM todo_items ORDER BY list_id, parent_id, position, id")
             .map_err(|error| format!("unable to prepare todo item export: {error}"))?;
         let rows = statement
             .query_map([], |row| {
@@ -228,15 +228,16 @@ fn consistent_manifest(store: &WorkspaceStore) -> Result<BackupManifest, String>
                     status: row.get(6)?,
                     priority: row.get(7)?,
                     due_at: row.get(8)?,
-                    position: row.get(9)?,
-                    recurrence_kind: row.get(10)?,
-                    recurrence_interval: row.get(11)?,
-                    reminder_offset_minutes: row.get(12)?,
-                    reminder_state: row.get(13)?,
-                    created_at: row.get(14)?,
-                    updated_at: row.get(15)?,
-                    completed_at: row.get(16)?,
-                    deleted_at: row.get(17)?,
+                    planned_for: row.get(9)?,
+                    position: row.get(10)?,
+                    recurrence_kind: row.get(11)?,
+                    recurrence_interval: row.get(12)?,
+                    reminder_offset_minutes: row.get(13)?,
+                    reminder_state: row.get(14)?,
+                    created_at: row.get(15)?,
+                    updated_at: row.get(16)?,
+                    completed_at: row.get(17)?,
+                    deleted_at: row.get(18)?,
                 })
             })
             .map_err(|error| format!("unable to read todo item export: {error}"))?;
@@ -387,6 +388,10 @@ fn validate_manifest(manifest: &BackupManifest) -> Result<(), String> {
             ));
         }
     }
+    for item in &manifest.todo_items {
+        validate_planned_for(item.planned_for.as_deref())
+            .map_err(|error| format!("待辦 {} 的安排日期無效：{error}", item.id))?;
+    }
     Ok(())
 }
 
@@ -448,8 +453,8 @@ fn import_manifest(store: &WorkspaceStore, manifest: &BackupManifest) -> Result<
     }
     for item in &manifest.todo_items {
         transaction.execute(
-            "INSERT INTO todo_items(id, list_id, parent_id, series_id, title, notes, status, priority, due_at, position, recurrence_kind, recurrence_interval, reminder_offset_minutes, reminder_state, created_at, updated_at, completed_at, deleted_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
-            params![item.id, item.list_id, item.parent_id, item.series_id, item.title, item.notes, item.status, item.priority, item.due_at, item.position, item.recurrence_kind, item.recurrence_interval, item.reminder_offset_minutes, item.reminder_state, item.created_at, item.updated_at, item.completed_at, item.deleted_at],
+            "INSERT INTO todo_items(id, list_id, parent_id, series_id, title, notes, status, priority, due_at, planned_for, position, recurrence_kind, recurrence_interval, reminder_offset_minutes, reminder_state, created_at, updated_at, completed_at, deleted_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+            params![item.id, item.list_id, item.parent_id, item.series_id, item.title, item.notes, item.status, item.priority, item.due_at, item.planned_for, item.position, item.recurrence_kind, item.recurrence_interval, item.reminder_offset_minutes, item.reminder_state, item.created_at, item.updated_at, item.completed_at, item.deleted_at],
         ).map_err(|error| format!("unable to restore todo item {}: {error}", item.id))?;
     }
     let has_foreign_key_error = {
@@ -589,7 +594,7 @@ mod tests {
         fs::create_dir_all(&root).expect("create root");
         let backup_path = root.join("my-place.personal-place");
         let exported = export_backup(&source, &backup_path).expect("export");
-        assert_eq!(exported.preview.format_version, 3);
+        assert_eq!(exported.preview.format_version, 4);
         assert_eq!(exported.preview.page_count, 1);
         assert_eq!(exported.preview.note_count, 1);
         assert_eq!(exported.preview.calendar_source_count, 1);
@@ -627,7 +632,7 @@ mod tests {
     }
 
     #[test]
-    fn version_two_backup_round_trips_todo_data() {
+    fn version_four_backup_round_trips_todo_planning() {
         let source = initialized_store();
         let (overview, list_id) = source.create_todo_list("學習").expect("create list");
         assert!(overview.lists.iter().any(|list| list.id == list_id));
@@ -639,6 +644,7 @@ mod tests {
                     notes: "保持本機資料".to_string(),
                     priority: "high".to_string(),
                     due_at: None,
+                    planned_for: Some("2026-09-01".to_string()),
                     recurrence_kind: "none".to_string(),
                     recurrence_interval: 1,
                     reminder_offset_minutes: None,
@@ -656,7 +662,85 @@ mod tests {
             source.get_todo_overview().unwrap(),
             destination.get_todo_overview().unwrap()
         );
+        assert_eq!(
+            destination.get_todo_overview().unwrap().items[0]
+                .planned_for
+                .as_deref(),
+            Some("2026-09-01")
+        );
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn version_three_manifest_without_planning_defaults_to_null() {
+        let store = initialized_store();
+        let (_, list_id) = store.create_todo_list("Legacy").unwrap();
+        store
+            .create_todo_item(
+                &list_id,
+                &crate::todo::TodoItemInput {
+                    title: "Old backup item".to_string(),
+                    notes: String::new(),
+                    priority: "none".to_string(),
+                    due_at: None,
+                    planned_for: None,
+                    recurrence_kind: "none".to_string(),
+                    recurrence_interval: 1,
+                    reminder_offset_minutes: None,
+                    parent_id: None,
+                },
+            )
+            .unwrap();
+        let mut manifest = consistent_manifest(&store).expect("manifest");
+        manifest.format_version = 3;
+        let mut value = serde_json::to_value(&manifest).expect("serialize manifest");
+        if let Some(items) = value
+            .get_mut("todoItems")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            for item in items {
+                item.as_object_mut()
+                    .expect("todo object")
+                    .remove("plannedFor");
+            }
+        }
+        let restored: BackupManifest = serde_json::from_value(value).expect("deserialize v3");
+        assert_eq!(restored.todo_items.len(), 1);
+        assert_eq!(restored.todo_items[0].planned_for, None);
+        validate_manifest(&restored).expect("validate v3");
+        let destination = initialized_store();
+        import_manifest(&destination, &restored).expect("restore v3 manifest");
+        assert_eq!(
+            destination.get_todo_overview().unwrap().items[0].planned_for,
+            None
+        );
+    }
+
+    #[test]
+    fn malformed_planning_date_is_rejected_before_import() {
+        let source = initialized_store();
+        let (_, list_id) = source.create_todo_list("Planning").unwrap();
+        source
+            .create_todo_item(
+                &list_id,
+                &crate::todo::TodoItemInput {
+                    title: "Invalid later".to_string(),
+                    notes: String::new(),
+                    priority: "none".to_string(),
+                    due_at: None,
+                    planned_for: None,
+                    recurrence_kind: "none".to_string(),
+                    recurrence_interval: 1,
+                    reminder_offset_minutes: None,
+                    parent_id: None,
+                },
+            )
+            .unwrap();
+        let mut manifest = consistent_manifest(&source).unwrap();
+        manifest.todo_items[0].planned_for = Some("2026-02-30".to_string());
+        assert!(validate_manifest(&manifest)
+            .unwrap_err()
+            .contains("安排日期無效"));
     }
 
     #[test]

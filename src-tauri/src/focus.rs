@@ -69,6 +69,14 @@ impl WorkspaceStore {
             .transaction()
             .map_err(|error| format!("無法開始 Focus：{error}"))?;
         resolve_expired(&transaction, now)?;
+        let current_status: String = transaction
+            .query_row("SELECT status FROM focus_state WHERE id=1", [], |row| {
+                row.get(0)
+            })
+            .map_err(|error| format!("無法讀取 Focus：{error}"))?;
+        if matches!(current_status.as_str(), "running" | "paused") {
+            return Err("已有專注正在進行，請先結束目前專注。".to_string());
+        }
         let settings = read_settings(&transaction)?;
         let phase = request.phase.as_deref().unwrap_or("focus");
         let seconds = phase_seconds(phase, &settings)?;
@@ -300,5 +308,62 @@ mod tests {
                 .status,
             "idle"
         );
+    }
+
+    #[test]
+    fn active_focus_cannot_be_replaced() {
+        let store = store();
+        let first = store
+            .start_focus(
+                &StartFocusRequest {
+                    phase: Some("focus".into()),
+                    linked_todo_id: Some("todo-a".into()),
+                    linked_group_id: None,
+                },
+                1_000_000,
+            )
+            .unwrap();
+        let result = store.start_focus(
+            &StartFocusRequest {
+                phase: Some("focus".into()),
+                linked_todo_id: Some("todo-b".into()),
+                linked_group_id: None,
+            },
+            1_000_100,
+        );
+        assert!(result.is_err());
+        let current = store.get_focus_state(1_000_100).unwrap();
+        assert_eq!(current.linked_todo_id.as_deref(), Some("todo-a"));
+        assert_eq!(current.started_at, first.started_at);
+        assert_eq!(current.ends_at, first.ends_at);
+    }
+
+    #[test]
+    fn paused_focus_cannot_be_replaced() {
+        let store = store();
+        store
+            .start_focus(
+                &StartFocusRequest {
+                    phase: Some("focus".into()),
+                    linked_todo_id: Some("todo-a".into()),
+                    linked_group_id: None,
+                },
+                1_000_000,
+            )
+            .unwrap();
+        let paused = store.pause_focus(1_000_100).unwrap();
+        let result = store.start_focus(
+            &StartFocusRequest {
+                phase: Some("focus".into()),
+                linked_todo_id: Some("todo-b".into()),
+                linked_group_id: None,
+            },
+            1_000_200,
+        );
+        assert!(result.is_err());
+        let current = store.get_focus_state(1_000_200).unwrap();
+        assert_eq!(current.status, "paused");
+        assert_eq!(current.linked_todo_id.as_deref(), Some("todo-a"));
+        assert_eq!(current.remaining_seconds, paused.remaining_seconds);
     }
 }

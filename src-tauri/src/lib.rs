@@ -219,6 +219,13 @@ struct TodoCompletedRequest {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct TodoPlannedForRequest {
+    item_id: String,
+    planned_for: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct TodoMoveRequest {
     item_ids: Vec<String>,
     list_id: String,
@@ -1010,6 +1017,17 @@ fn set_todo_completed(
 }
 
 #[tauri::command]
+fn set_todo_planned_for(
+    request: TodoPlannedForRequest,
+    runtime: State<'_, PersonalPlaceRuntime>,
+) -> Result<TodoOverview, CommandError> {
+    runtime
+        .store
+        .set_todo_planned_for(&request.item_id, request.planned_for.as_deref())
+        .map_err(CommandError::storage)
+}
+
+#[tauri::command]
 fn move_todo_items(
     request: TodoMoveRequest,
     runtime: State<'_, PersonalPlaceRuntime>,
@@ -1620,6 +1638,7 @@ pub fn run() {
             create_todo_item,
             update_todo_item,
             set_todo_completed,
+            set_todo_planned_for,
             move_todo_items,
             delete_todo_items,
             restore_todo_items,

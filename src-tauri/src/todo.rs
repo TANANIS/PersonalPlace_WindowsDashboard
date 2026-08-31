@@ -1,5 +1,5 @@
 use crate::{dashboard::unique_id, storage::WorkspaceStore};
-use chrono::{Datelike, Duration, Local, TimeZone, Timelike, Utc, Weekday};
+use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone, Timelike, Utc, Weekday};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +28,8 @@ pub struct TodoItem {
     pub status: String,
     pub priority: String,
     pub due_at: Option<i64>,
+    #[serde(default)]
+    pub planned_for: Option<String>,
     pub position: i64,
     pub recurrence_kind: String,
     pub recurrence_interval: i64,
@@ -55,6 +57,8 @@ pub struct TodoItemInput {
     #[serde(default = "default_priority")]
     pub priority: String,
     pub due_at: Option<i64>,
+    #[serde(default)]
+    pub planned_for: Option<String>,
     #[serde(default = "default_recurrence")]
     pub recurrence_kind: String,
     #[serde(default = "default_interval")]
@@ -168,11 +172,11 @@ impl WorkspaceStore {
                 .execute(
                     "INSERT INTO todo_items(
                          id, list_id, parent_id, series_id, title, notes, status, priority,
-                         due_at, position, recurrence_kind, recurrence_interval,
+                         due_at, planned_for, position, recurrence_kind, recurrence_interval,
                          reminder_offset_minutes, reminder_state, created_at, updated_at,
                          completed_at, deleted_at
-                     ) VALUES(?1, ?2, ?3, NULL, ?4, ?5, 'active', ?6, ?7, ?8, ?9, ?10,
-                              ?11, ?12, ?13, ?13, NULL, NULL)",
+                      ) VALUES(?1, ?2, ?3, NULL, ?4, ?5, 'active', ?6, ?7, ?8, ?9, ?10, ?11,
+                               ?12, ?13, ?14, ?14, NULL, NULL)",
                     params![
                         id,
                         list_id,
@@ -181,6 +185,7 @@ impl WorkspaceStore {
                         input.notes,
                         input.priority,
                         input.due_at,
+                        input.planned_for,
                         position,
                         input.recurrence_kind,
                         input.recurrence_interval,
@@ -221,9 +226,9 @@ impl WorkspaceStore {
             transaction
                 .execute(
                     "UPDATE todo_items SET parent_id = ?2, title = ?3, notes = ?4,
-                         priority = ?5, due_at = ?6, recurrence_kind = ?7,
-                         recurrence_interval = ?8, reminder_offset_minutes = ?9,
-                         reminder_state = ?10, updated_at = ?11
+                         priority = ?5, due_at = ?6, planned_for = ?7, recurrence_kind = ?8,
+                         recurrence_interval = ?9, reminder_offset_minutes = ?10,
+                         reminder_state = ?11, updated_at = ?12
                      WHERE id = ?1 AND status != 'deleted'",
                     params![
                         item_id,
@@ -232,6 +237,7 @@ impl WorkspaceStore {
                         input.notes,
                         input.priority,
                         input.due_at,
+                        input.planned_for,
                         input.recurrence_kind,
                         input.recurrence_interval,
                         input.reminder_offset_minutes,
@@ -240,6 +246,40 @@ impl WorkspaceStore {
                     ],
                 )
                 .map_err(|error| format!("無法更新待辦事項：{error}"))?;
+            Ok(())
+        })
+    }
+
+    pub fn set_todo_planned_for(
+        &self,
+        item_id: &str,
+        planned_for: Option<&str>,
+    ) -> Result<TodoOverview, String> {
+        validate_planned_for(planned_for)?;
+        let now = Utc::now().timestamp();
+        self.mutate_todo(|transaction| {
+            let changed = transaction
+                .execute(
+                    "UPDATE todo_items SET planned_for = ?2, updated_at = ?3
+                     WHERE id = ?1 AND status = 'active'",
+                    params![item_id, planned_for, now],
+                )
+                .map_err(|error| format!("無法更新待辦安排日期：{error}"))?;
+            if changed == 0 {
+                let status: Option<String> = transaction
+                    .query_row(
+                        "SELECT status FROM todo_items WHERE id = ?1",
+                        [item_id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(|error| format!("無法確認待辦狀態：{error}"))?;
+                return Err(match status.as_deref() {
+                    Some("completed") => "已完成的待辦事項無法重新安排。".to_string(),
+                    Some("deleted") => "已刪除的待辦事項無法重新安排。".to_string(),
+                    _ => "找不到要安排的待辦事項。".to_string(),
+                });
+            }
             Ok(())
         })
     }
@@ -305,11 +345,11 @@ impl WorkspaceStore {
                     .execute(
                         "INSERT INTO todo_items(
                              id, list_id, parent_id, series_id, title, notes, status, priority,
-                             due_at, position, recurrence_kind, recurrence_interval,
+                             due_at, planned_for, position, recurrence_kind, recurrence_interval,
                              reminder_offset_minutes, reminder_state, created_at, updated_at,
                              completed_at, deleted_at
-                         ) VALUES(?1, ?2, NULL, ?3, ?4, ?5, 'active', ?6, ?7, ?8, ?9, ?10,
-                                  ?11, ?12, ?13, ?13, NULL, NULL)",
+                          ) VALUES(?1, ?2, NULL, ?3, ?4, ?5, 'active', ?6, ?7, NULL, ?8, ?9, ?10,
+                                   ?11, ?12, ?13, ?13, NULL, NULL)",
                         params![
                             next_id,
                             item.list_id,
@@ -497,7 +537,7 @@ fn load_overview(connection: &Connection) -> Result<TodoOverview, String> {
         let mut statement = connection
             .prepare(
                 "SELECT id, list_id, parent_id, series_id, title, notes, status, priority,
-                        due_at, position, recurrence_kind, recurrence_interval,
+                        due_at, planned_for, position, recurrence_kind, recurrence_interval,
                         reminder_offset_minutes, reminder_state, created_at, updated_at,
                         completed_at, deleted_at
                  FROM todo_items WHERE status != 'deleted'
@@ -525,15 +565,16 @@ fn row_to_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<TodoItem> {
         status: row.get(6)?,
         priority: row.get(7)?,
         due_at: row.get(8)?,
-        position: row.get(9)?,
-        recurrence_kind: row.get(10)?,
-        recurrence_interval: row.get(11)?,
-        reminder_offset_minutes: row.get(12)?,
-        reminder_state: row.get(13)?,
-        created_at: row.get(14)?,
-        updated_at: row.get(15)?,
-        completed_at: row.get(16)?,
-        deleted_at: row.get(17)?,
+        planned_for: row.get(9)?,
+        position: row.get(10)?,
+        recurrence_kind: row.get(11)?,
+        recurrence_interval: row.get(12)?,
+        reminder_offset_minutes: row.get(13)?,
+        reminder_state: row.get(14)?,
+        created_at: row.get(15)?,
+        updated_at: row.get(16)?,
+        completed_at: row.get(17)?,
+        deleted_at: row.get(18)?,
     })
 }
 
@@ -541,7 +582,7 @@ fn load_item(connection: &Connection, item_id: &str) -> Result<TodoItem, String>
     connection
         .query_row(
             "SELECT id, list_id, parent_id, series_id, title, notes, status, priority,
-                    due_at, position, recurrence_kind, recurrence_interval,
+                    due_at, planned_for, position, recurrence_kind, recurrence_interval,
                     reminder_offset_minutes, reminder_state, created_at, updated_at,
                     completed_at, deleted_at FROM todo_items WHERE id = ?1",
             [item_id],
@@ -588,6 +629,21 @@ fn validate_item_input(input: &TodoItemInput) -> Result<(), String> {
     }
     if input.reminder_offset_minutes.is_some() && input.due_at.is_none() {
         return Err("設定提醒前需要先設定截止時間。".to_string());
+    }
+    validate_planned_for(input.planned_for.as_deref())?;
+    Ok(())
+}
+
+pub(crate) fn validate_planned_for(value: Option<&str>) -> Result<(), String> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    if value.len() != 10
+        || NaiveDate::parse_from_str(value, "%Y-%m-%d")
+            .ok()
+            .is_none_or(|date| date.format("%Y-%m-%d").to_string() != value)
+    {
+        return Err("安排日期必須是有效的 YYYY-MM-DD 本機日期。".to_string());
     }
     Ok(())
 }
@@ -789,6 +845,7 @@ mod tests {
                     notes: String::new(),
                     priority: "none".into(),
                     due_at: None,
+                    planned_for: None,
                     recurrence_kind: "none".into(),
                     recurrence_interval: 1,
                     reminder_offset_minutes: None,
@@ -805,6 +862,7 @@ mod tests {
                     notes: String::new(),
                     priority: "low".into(),
                     due_at: None,
+                    planned_for: None,
                     recurrence_kind: "none".into(),
                     recurrence_interval: 1,
                     reminder_offset_minutes: None,
@@ -824,6 +882,7 @@ mod tests {
             notes: String::new(),
             priority: "none".into(),
             due_at: None,
+            planned_for: None,
             recurrence_kind: "none".into(),
             recurrence_interval: 1,
             reminder_offset_minutes: None,
@@ -850,6 +909,7 @@ mod tests {
                     notes: String::new(),
                     priority: "medium".into(),
                     due_at: Some(Utc::now().timestamp() - 10 * 24 * 60 * 60),
+                    planned_for: Some("2026-09-01".into()),
                     recurrence_kind: "daily".into(),
                     recurrence_interval: 1,
                     reminder_offset_minutes: Some(30),
@@ -866,5 +926,88 @@ mod tests {
             .find(|candidate| candidate.status == "active")
             .unwrap();
         assert!(next.due_at.unwrap() > Utc::now().timestamp());
+        assert_eq!(next.planned_for, None);
+        let completed = result
+            .items
+            .iter()
+            .find(|candidate| candidate.status == "completed")
+            .unwrap();
+        assert_eq!(completed.planned_for.as_deref(), Some("2026-09-01"));
+    }
+
+    #[test]
+    fn planning_mutation_validates_state_and_preserves_delete_restore_value() {
+        let store = store();
+        let (_, list_id) = store.create_todo_list("Planning").unwrap();
+        store
+            .create_todo_item(
+                &list_id,
+                &TodoItemInput {
+                    title: "安排我".into(),
+                    notes: String::new(),
+                    priority: "none".into(),
+                    due_at: None,
+                    planned_for: None,
+                    recurrence_kind: "none".into(),
+                    recurrence_interval: 1,
+                    reminder_offset_minutes: None,
+                    parent_id: None,
+                },
+            )
+            .unwrap();
+        let item = store.get_todo_overview().unwrap().items[0].clone();
+        assert!(store
+            .set_todo_planned_for(&item.id, Some("2026-02-30"))
+            .is_err());
+        let planned = store
+            .set_todo_planned_for(&item.id, Some("2026-09-01"))
+            .unwrap();
+        assert_eq!(planned.items[0].planned_for.as_deref(), Some("2026-09-01"));
+        store
+            .delete_todo_items(std::slice::from_ref(&item.id))
+            .unwrap();
+        assert!(store
+            .set_todo_planned_for(&item.id, Some("2026-09-02"))
+            .is_err());
+        let restored = store
+            .restore_todo_items(std::slice::from_ref(&item.id))
+            .unwrap();
+        assert_eq!(restored.items[0].planned_for.as_deref(), Some("2026-09-01"));
+        let cleared = store.set_todo_planned_for(&item.id, None).unwrap();
+        assert_eq!(cleared.items[0].planned_for, None);
+        store.set_todo_completed(&item.id, true).unwrap();
+        assert!(store
+            .set_todo_planned_for(&item.id, Some("2026-09-03"))
+            .is_err());
+    }
+
+    #[test]
+    fn create_and_update_round_trip_planning() {
+        let store = store();
+        let (_, list_id) = store.create_todo_list("Planning").unwrap();
+        let input = TodoItemInput {
+            title: "安排我".into(),
+            notes: String::new(),
+            priority: "none".into(),
+            due_at: None,
+            planned_for: Some("2026-09-01".into()),
+            recurrence_kind: "none".into(),
+            recurrence_interval: 1,
+            reminder_offset_minutes: None,
+            parent_id: None,
+        };
+        let created = store.create_todo_item(&list_id, &input).unwrap();
+        assert_eq!(created.items[0].planned_for, input.planned_for);
+        let item_id = created.items[0].id.clone();
+        let updated = store
+            .update_todo_item(
+                &item_id,
+                &TodoItemInput {
+                    title: "改名後".into(),
+                    ..input
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.items[0].planned_for.as_deref(), Some("2026-09-01"));
     }
 }

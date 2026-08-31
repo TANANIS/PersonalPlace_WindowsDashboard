@@ -128,6 +128,7 @@ export interface TodoItem {
   status: TodoStatus;
   priority: TodoPriority;
   dueAt: number | null;
+  plannedFor: string | null;
   position: number;
   recurrenceKind: TodoRecurrence;
   recurrenceInterval: number;
@@ -149,6 +150,7 @@ export interface TodoItemInput {
   notes: string;
   priority: TodoPriority;
   dueAt: number | null;
+  plannedFor: string | null;
   recurrenceKind: TodoRecurrence;
   recurrenceInterval: number;
   reminderOffsetMinutes: number | null;
@@ -311,7 +313,7 @@ function browserDemoTodoOverview(): TodoOverview {
   ];
   const base = (id: string, listId: string, title: string, position: number, extra: Partial<TodoItem> = {}): TodoItem => ({
     id, listId, parentId: null, seriesId: null, title, notes: "", status: "active", priority: "none",
-    dueAt: null, position, recurrenceKind: "none", recurrenceInterval: 1, reminderOffsetMinutes: null,
+    dueAt: null, plannedFor: null, position, recurrenceKind: "none", recurrenceInterval: 1, reminderOffsetMinutes: null,
     reminderState: "none", createdAt: now, updatedAt: now, completedAt: null, deletedAt: null, ...extra,
   });
   browserTodoState = {
@@ -540,7 +542,7 @@ export async function createTodoItem(listId: string, item: TodoItemInput): Promi
   if (isBrowserDemo()) {
     const overview = browserDemoTodoOverview();
     const now = Math.floor(Date.now() / 1000);
-    overview.items.push({ id: `demo-task-${now}`, listId, parentId: item.parentId, seriesId: null, title: item.title, notes: item.notes, status: "active", priority: item.priority, dueAt: item.dueAt, position: overview.items.filter((entry) => entry.listId === listId && entry.parentId === item.parentId).length, recurrenceKind: item.recurrenceKind, recurrenceInterval: item.recurrenceInterval, reminderOffsetMinutes: item.reminderOffsetMinutes, reminderState: "none", createdAt: now, updatedAt: now, completedAt: null, deletedAt: null });
+    overview.items.push({ id: `demo-task-${now}`, listId, parentId: item.parentId, seriesId: null, title: item.title, notes: item.notes, status: "active", priority: item.priority, dueAt: item.dueAt, plannedFor: item.plannedFor, position: overview.items.filter((entry) => entry.listId === listId && entry.parentId === item.parentId).length, recurrenceKind: item.recurrenceKind, recurrenceInterval: item.recurrenceInterval, reminderOffsetMinutes: item.reminderOffsetMinutes, reminderState: "none", createdAt: now, updatedAt: now, completedAt: null, deletedAt: null });
     browserTodoState = overview;
     return browserDemoTodoOverview();
   }
@@ -564,6 +566,18 @@ export async function setTodoCompleted(itemId: string, completed: boolean): Prom
     return browserDemoTodoOverview();
   }
   return invoke<TodoOverview>("set_todo_completed", { request: { itemId, completed } });
+}
+
+export async function setTodoPlannedFor(itemId: string, plannedFor: string | null): Promise<TodoOverview> {
+  if (isBrowserDemo()) {
+    const overview = browserDemoTodoOverview();
+    const item = overview.items.find((entry) => entry.id === itemId);
+    if (!item || item.status !== "active") throw new Error("只有進行中的待辦可以安排日期。");
+    const now = Math.floor(Date.now() / 1000);
+    browserTodoState = { ...overview, items: overview.items.map((entry) => entry.id === itemId ? { ...entry, plannedFor, updatedAt: now } : entry) };
+    return browserDemoTodoOverview();
+  }
+  return invoke<TodoOverview>("set_todo_planned_for", { request: { itemId, plannedFor } });
 }
 
 export async function moveTodoItems(itemIds: string[], listId: string, parentId: string | null, targetIndex: number): Promise<TodoOverview> {

@@ -15,6 +15,7 @@ export {
   moveTodoItems,
   restoreTodoItems,
   setTodoCompleted,
+  setTodoPlannedFor,
   updateTodoItem,
   updateTodoList,
 } from "./internal";
