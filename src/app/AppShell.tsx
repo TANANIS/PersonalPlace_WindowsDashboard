@@ -1143,7 +1143,9 @@ export function AppShell() {
         <header className="topbar">
           <div><p className="eyebrow">{zhTW.brand.eyebrow}</p><h1>{activePage.name}</h1></div>
           <div className="topbar-actions">
-            <div className={`unified-search${searchExpanded || query ? " is-expanded" : ""}`}>
+            <div className={`unified-search${searchExpanded || query ? " is-expanded" : ""}`} onBlur={(event) => {
+              if (!query.trim() && !event.currentTarget.contains(event.relatedTarget as Node | null)) setSearchExpanded(false);
+            }}>
               <label className="search-box"><span aria-hidden="true">⌕</span><input ref={searchInputRef} aria-label="搜尋 Personal Place" value={query} onFocus={() => setSearchExpanded(true)} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
                 if (event.key === "Escape") {
                   event.preventDefault();
