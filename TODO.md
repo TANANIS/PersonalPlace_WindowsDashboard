@@ -1,64 +1,83 @@
 # Personal Place Product TODO
 
-> Read this before proposing the next feature release.
+> Current product / implementation handoff for Personal Place 2.0.
 >
-> This document preserves the product-level problems and design decisions discovered after v1.9.0 so future planning does not immediately fall back into adding more features.
-
-## Current baseline
-
-Personal Place v1.9.0 has a reasonably mature internal domain model:
-
-- **Today**: current-day orchestration
-- **Todo**: things the user intends to handle
-- **Place**: working context and continuation point
-- **Focus**: what the user is doing now
-- **Calendar**: external commitments
-- **Activity**: what actually happened
-
-The architecture is no longer the main problem.
-
-The current problem is the **product experience**.
+> Read this before proposing the next 2.0 implementation stage. The purpose of this document is to preserve the product decisions, accepted implementation state, invariants, and next work so a new planning conversation does not restart from v1.9 assumptions.
 
 ---
 
-## Core diagnosis
+## Current status
 
-### 1. A new user does not immediately understand what Personal Place is for
-
-When the app opens, the user may reasonably interpret it as any of the following:
-
-- launcher
-- dashboard
-- Todo app
-- Focus timer
-- calendar companion
-- personal workspace manager
-
-The product exposes multiple correct concepts, but does not give the user one obvious primary story.
-
-A user should understand within a few seconds:
-
-1. what they should look at first;
-2. what they should do next;
-3. how Personal Place helps them begin working.
-
-### 2. The planning / focus model is coherent internally but not self-evident
+Personal Place 2.0 product consolidation is well underway.
 
 ```text
-Todo       = what I need to handle
-plannedFor = when I intend to work on it
-Today      = what matters now
-Place      = where / in what context I continue work
-Focus      = what I am doing now
-Activity   = what I actually did
+A — Product narrative                RESOLVED
+B — Today / Home IA                  RESOLVED
+C — Real Focus Mode                  RESOLVED
+D — Visual system + UI deletion      RESOLVED
+Implementation architecture review   COMPLETE
+
+Stage 0 — baseline characterization                  ACCEPTED
+Stage 1 — navigation foundation + standalone Todo    ACCEPTED
+Stage 2 — app-level Focus + FocusMode                 ACCEPTED
+Stage 2 acceptance cleanup                           ACCEPTED
+Stage 3 — Today home + startup + sidebar IA           ACCEPTED
+Stage 3 acceptance cleanup                           ACCEPTED
+Stage 4 — Page / Place browse-vs-organize cleanup     ACCEPTED
+
+NEXT: Stage 5 — visual-system migration
 ```
 
-Users should not need to reverse-engineer this architecture.
-
-The interface itself should communicate a simple flow:
+Current accepted implementation checkpoint:
 
 ```text
-What do I need to do?
+0c943108664e0a6278f23bee2af9aa8f49e03d1a
+feat: separate Personal Place browsing from organizing
+```
+
+Persistence remains intentionally unchanged:
+
+```text
+SQLite schema version: 6
+Backup format version: 4
+Migration added for 2.0 so far: no
+```
+
+Latest accepted validation baseline after Stage 4:
+
+```text
+pnpm test: 37 files / 129 tests passed
+pnpm build: passed
+cargo test: 91 passed / 1 ignored
+cargo clippy -- -D warnings: passed
+cargo fmt --check: passed
+git diff --check: passed
+```
+
+Stage 4 desktop smoke was limited because port `1420` was already occupied by an existing Vite server. The existing process was not terminated automatically.
+
+---
+
+# Product definition
+
+## Product promise
+
+> **Personal Place is a local-first personal workspace that helps you decide what to do today, continue from where you left off, and start focusing.**
+
+Internal shorthand:
+
+> **Know what to do today, continue from where you stopped, then begin.**
+
+Primary job:
+
+> **Reduce the activation cost between intending to work and actually starting.**
+
+Personal Place is not primarily a launcher, Todo app, timer, dashboard, Calendar companion, or activity tracker even though it contains those capabilities.
+
+The product should help the user move through one coherent flow:
+
+```text
+What do I need to handle?
         ↓
 What am I doing today?
         ↓
@@ -69,129 +88,9 @@ Start focusing
 Review what actually happened
 ```
 
-### 3. Pages / Places / grouping are too author-centric
-
-The author understands why content is divided into Pages, Places and related working contexts.
-
-A new user may instead think:
-
-> Why am I being asked to organize things before I have received any benefit from organizing them?
-
-Future UX should explain the **benefit**, not the data structure.
-
-Bad framing:
-
-> Create a group / divide content into areas.
-
-Better framing:
-
-> Put the things used for one activity together, save where you stopped, and continue from the same context next time.
-
-### 4. The visual design still serves the old dashboard / launcher identity
-
-The current interface is not simply “ugly”. Its visual hierarchy still assumes that many pieces of information deserve simultaneous attention.
-
-This conflicts with the newer product direction.
-
-Observed issues in v1.9 include:
-
-- Today sections often receive similar visual weight even when their product importance is very different;
-- empty Calendar state can occupy more space than useful work;
-- Page cards expose repeated metadata and administrative affordances during normal use;
-- sidebar navigation leaks implementation hierarchy and gives Pages too much weight relative to Today;
-- Focus is visually cleaner than the rest of the app, but still behaves too much like a timer workspace rather than a true application state;
-- history / statistics can remain visible while the user is trying to focus;
-- too many bordered surfaces compete for attention.
-
-The design problem is **cognitive competition**, not merely color choice.
-
 ---
 
-# Next milestone: 2.0 product consolidation before feature expansion
-
-Do not treat the next major effort as another feature release.
-
-The goal is to make the existing product understandable, directional and calm before expanding capability.
-
----
-
-## A. Product narrative — RESOLVED
-
-### Product promise
-
-The v1.9 README still describes Personal Place primarily as a local-first Windows digital homepage where users organize apps, websites, files, folders and notes into Pages and Places.
-
-That remains technically true, but it should no longer be the primary product story.
-
-Target direction:
-
-> **Personal Place is a local-first personal workspace that helps you decide what to do today, continue from where you left off, and start focusing.**
-
-Short internal test:
-
-> **Know what to do today, continue from where you stopped, then begin.**
-
-### Primary job
-
-The primary job of Personal Place is not information management, Todo management, launching apps, time tracking, or running a timer in isolation.
-
-The primary job is:
-
-> **Reduce the activation cost between intending to work and actually starting.**
-
-This is the product-level decision rule for future UX work.
-
-If information or functionality does not help the user decide, continue, start, or later review, it should not automatically receive primary visual weight.
-
-### First 30 seconds for a new user
-
-A new user should receive value before being asked to understand Pages, Places, Calendar, Activity, grouping, backup, widgets, or advanced organization.
-
-Ideal first-use loop:
-
-```text
-Open Personal Place
-        ↓
-What do you want to finish today?
-        ↓
-Add one task
-        ↓
-Today shows that task
-        ↓
-Start Focus
-```
-
-Do not require structural organization before the first useful action.
-
-### First 10 seconds for a returning user
-
-The landing experience should respond to current state.
-
-If Focus is active:
-
-```text
-Return to Focus Mode
-```
-
-If Today has planned work:
-
-```text
-今天
-<planned work>
-[開始]
-```
-
-If Today is empty:
-
-```text
-今天還沒有安排
-[從待辦選一件]
-[新增一件事]
-```
-
-The user should not have to scan a dashboard to infer what they are supposed to do.
-
-### User-facing domain meanings
+## User-facing domain meanings
 
 | Domain | User-facing meaning |
 | --- | --- |
@@ -203,17 +102,9 @@ The user should not have to scan a dashboard to infer what they are supposed to 
 | **Activity** | 我最後實際把時間花到哪裡 |
 | **Page** | 東西變多後才需要的整理分區 |
 
-### Page is not a core onboarding concept
+Page remains useful but is not a core onboarding concept.
 
-Page may remain useful in the architecture and product, but new users should not need to understand a Page / Place hierarchy before receiving value.
-
-Treat Page primarily as an organization mechanism revealed when useful.
-
-### Place remains strategically important
-
-Place should not be reduced to a folder or group.
-
-Its distinctive value is preserving a working scene / continuation context:
+Place remains strategically important because it preserves a working scene:
 
 ```text
 Tools / files / links used for one activity
@@ -223,13 +114,7 @@ where I stopped last time
 return to the same working context
 ```
 
-Sell the benefit first:
-
-> Leave the work where it is, then come back and continue.
-
-Only then should the user need to learn the term `Place`.
-
-### Focus is a state, not merely a timer
+Focus is an application state, not merely a timer.
 
 Today asks:
 
@@ -239,99 +124,254 @@ Focus says:
 
 > I already chose. Stop showing me alternatives.
 
-Focus must therefore become a **subtractive application state**. The timer is supportive, not the defining feature.
+---
 
-### Progressive disclosure
+# Product character
 
-Initial concepts should be close to:
-
-```text
-Today
-Todo
-Start
-```
-
-Reveal other concepts when they become useful:
-
-```text
-Repeatedly return to the same work?
-→ Place
-
-Have fixed commitments?
-→ Calendar
-
-Want to review where time actually went?
-→ Activity
-```
-
-First give value. Then teach structure.
-
-### Product feeling / interaction character
-
-Based on the v1.9 UI review, the target character is now:
+Target interaction / visual character:
 
 > **Calm, private, low-pressure, directed, non-judgmental — like returning to your own work desk.**
 
-Important distinctions:
+Meaning:
 
-- **calm** does not mean empty or directionless;
-- **directed** means the interface gently makes the next useful action obvious;
-- **low-pressure** means overdue work and empty days should not become alarm walls;
-- **non-judgmental** means no productivity score, streak pressure, shame-oriented completion language, or intrusive “you only focused X minutes” feedback;
-- **private** means the interface should feel like the user's own working space rather than a corporate performance dashboard.
-
-### Product principles established in A
-
-1. **Personal Place's job is not to manage information; it is to reduce the cost of starting work.**
-2. **Today is the product entry point, not merely another workspace.**
-3. **Users should receive value before being asked to organize.**
-4. **Place sells continuation of a working scene, not grouping.**
-5. **Focus is a subtractive state, not merely a timer feature.**
-6. **The product should provide direction without judging the user.**
+- **calm** does not mean directionless;
+- **directed** means the next useful action should be obvious;
+- **low-pressure** means empty days / overdue work should not become alarm walls;
+- **non-judgmental** means no productivity score, streak pressure, shame language, or intrusive performance feedback;
+- **private** means the product should feel like the user's own workspace, not a corporate performance dashboard.
 
 ---
 
-## B. Today / Home information architecture — RESOLVED TARGET
+# Core product principles
 
-B defines how users move through Personal Place. It is a product-weight and interaction model, not yet the final visual styling system.
+1. **The job is reducing start cost, not managing information.**
+2. **Today is the product entry point.**
+3. **Users should receive value before being asked to organize.**
+4. **Place sells continuation of a working scene, not grouping.**
+5. **Focus is a subtractive state, not merely a timer.**
+6. **The product provides direction without judging the user.**
+7. **Every visible element spends attention. Spend it only on deciding, continuing, working, or intentional review.**
 
-### 1. Startup behavior
+---
 
-The application should no longer behave as though the last visited Page is an equally valid default home.
+# Architecture / domain invariants
 
-Target startup rule:
+These contracts are already established and must survive Stages 5–7.
 
 ```text
-Active Focus exists
-        ↓
-Open / restore Focus Mode
+plannedFor != dueAt
 
-No Active Focus
-        ↓
-Open Today
+Focus ended != Todo completed
+
+starting Focus != launching Place
+
+starting Place Focus != launching Place work environment
+
+starting Todo Focus does not mutate plannedFor
+
+Activity = retrospective, not productivity scoring
+
+Today = orchestration, not a new persistence domain
+
+Focus domain active != FocusMode necessarily visible
+
+Page normal browsing != organize mode
+
+schema / backup version do not change without a genuine persistent-data requirement
 ```
 
-**Today owns the default entry experience.**
+Also preserve:
 
-Pages are destinations the user intentionally enters.
+- local-first Tauri / SQLite ownership;
+- Page / Place / card data and positions;
+- tones / sizes / `resumeNote` / launch flags;
+- legacy widget data until the Stage 6 compatibility path is complete;
+- backup / recovery behavior;
+- keyboard and accessibility behavior.
 
-### 2. Sidebar hierarchy
+---
 
-The current sidebar visually mixes user-created Pages with system-level workspaces. This leaks architecture and makes Pages appear as important as Today.
+# Canonical design documents
 
-Target hierarchy:
+Use these instead of reconstructing resolved design decisions from conversation history.
+
+## A + B — Product narrative / Today IA
+
+This document now contains the concise accepted summary.
+
+Important resolved B rules:
+
+```text
+startup active / paused Focus → FocusMode
+startup idle → Today
+
+Today is the default home
+Pages are intentional destinations
+
+plannedFor == today → primary Today plan
+Due / overdue → attention inputs, not automatic plan
+Calendar → compact time constraint
+Place continuation → 接著做 / 上次做到
+```
+
+## C — Focus Mode
+
+See [`PRODUCT_2_0_C_FOCUS_MODE.md`](PRODUCT_2_0_C_FOCUS_MODE.md).
+
+Core rule:
+
+> **When the user has already decided what to do, the interface should safely stop offering alternatives.**
+
+## D — Visual system
+
+See [`PRODUCT_2_0_D_VISUAL_SYSTEM.md`](PRODUCT_2_0_D_VISUAL_SYSTEM.md).
+
+Core rule:
+
+> **Use typography, spacing and omission before using another card, border, badge, glow or color block.**
+
+D is the primary design contract for Stage 5.
+
+## Implementation architecture
+
+See [`PRODUCT_2_0_IMPLEMENTATION_ARCHITECTURE.md`](PRODUCT_2_0_IMPLEMENTATION_ARCHITECTURE.md).
+
+It defines:
+
+- AppShell orchestration boundaries;
+- navigation / origin behavior;
+- standalone Todo architecture;
+- app-level Focus controller;
+- Today-to-AppShell boundary;
+- Place Focus / launch separation;
+- legacy widget compatibility strategy;
+- Usage vs ActivityWatch distinction;
+- staged implementation order;
+- validation gates.
+
+---
+
+# Accepted implementation progress
+
+## Stage 0 — Baseline characterization — ACCEPTED
+
+Baseline tests / contracts established before restructuring.
+
+No product-domain rewrite.
+
+---
+
+## Stage 1 — Navigation foundation + standalone Todo — ACCEPTED
+
+Checkpoint:
+
+```text
+bfaabed feat: prepare Personal Place 2.0 navigation and standalone todo
+```
+
+Delivered:
+
+- navigation origin can represent Dashboard or `systemWorkspace` cleanly;
+- nested Place navigation can return to a system workspace;
+- Todo became a first-class system workspace;
+- standalone Todo no longer requires Dashboard widget persistence;
+- legacy Todo widget uses a narrow adapter;
+- no schema / backup changes.
+
+Important accepted navigation contract:
+
+```text
+Today → Place → Back → Today
+Page → Place → Back → original Page
+```
+
+---
+
+## Stage 2 — App-level Focus controller + FocusMode — ACCEPTED
+
+Implementation checkpoint:
+
+```text
+0e8b998 feat: add app-level focus mode controller
+```
+
+Acceptance cleanup:
+
+```text
+736f5dc fix: harden Personal Place 2.0 focus state ownership
+```
+
+Delivered:
+
+- one canonical app-level frontend Focus controller in normal AppShell runtime;
+- `FocusMode` is a real application presentation state;
+- sidebar disappears in FocusMode;
+- Todo / Place Focus context is resolved centrally;
+- user can leave FocusMode without stopping Focus;
+- later Focus polling does not force the user back into FocusMode;
+- Today shows only compact `回到專注` while Focus is active;
+- Place Focus and work-environment launch remain separate;
+- legacy Focus surfaces use the canonical controller;
+- completion snapshot remains in-memory, no schema change.
+
+Cleanup fixed:
+
+- hidden second Today Focus controller;
+- controlled FocusDialog settings draft regression;
+- controller / Today / FocusMode regression coverage.
+
+---
+
+## Stage 3 — Today home + startup + sidebar IA — ACCEPTED
+
+Implementation checkpoint:
+
+```text
+b09eac9 feat: make Today the Personal Place 2.0 home
+```
+
+Acceptance cleanup:
+
+```text
+ee04e84 fix: harden Personal Place 2.0 startup routing
+4afdecc test: cover origin-aware Place back labels
+```
+
+Delivered startup behavior:
+
+```text
+workspace persistence ready
+        ↓
+canonical Focus ready
+        ↓
+running / paused → FocusMode
+idle → Today
+```
+
+Startup routing is a one-time decision. Later Focus polling cannot hijack navigation after the user intentionally leaves FocusMode.
+
+Generic initialization failures now have a visible retryable startup error path. Database recovery remains higher priority.
+
+Delivered Today 2.0 IA:
+
+- planned work is primary;
+- empty Today gives `從待辦選一件` / `新增待辦`;
+- Calendar absence renders nothing;
+- useful Calendar event is a compact constraint;
+- Due / overdue collapse into `需要留意`;
+- attention items use `排到今天`, not Start;
+- continuation uses `接著做` / `上次做到`;
+- `接著做` enters Place instead of auto-launching it;
+- active Focus on Today remains return-only.
+
+Delivered sidebar hierarchy:
 
 ```text
 Today
 Todo
 
-My spaces
-  日常
-  學習
-  遊戲
-  Live2D
-  跑團
-  繪圖
+我的空間
+  Pages
 
 Calendar
 Activity
@@ -339,430 +379,262 @@ Activity
 Settings
 ```
 
-Exact labels and visual grouping can be refined later, but the product weight is resolved:
+The global `整理` navigation entry was removed.
 
-- Today is first;
-- Todo is a core source of planned work;
-- Pages belong under a lower-weight “my spaces” concept;
-- Calendar and Activity are secondary system tools;
-- Settings remains peripheral.
+System workspace registry is now metadata-first.
 
-#### Remove global “整理” navigation
+---
 
-`整理` is not a destination. It is an editing state.
+## Stage 4 — Page / Place browse vs organize — ACCEPTED
 
-Do not keep it as a global workspace in the primary navigation.
-
-Instead, a Page should expose a contextual action such as:
+Checkpoint:
 
 ```text
-遊戲                                  [整理]
+0c94310 feat: separate Personal Place browsing from organizing
 ```
 
-Only after entering organize/edit mode should administrative controls become prominent.
-
-### 3. Today is stateful, not a fixed dashboard
-
-Today should adapt to what the user currently needs instead of rendering all domains with similar visual weight.
-
-Three important states:
-
-#### State A — planned work exists, no active Focus
-
-Primary content:
+Delivered Page behavior:
 
 ```text
-今天
-8 月 31 日 · 星期一
+NORMAL PAGE
+→ content / entry points
 
-[next Calendar constraint only if useful]
-
-今天安排
-
-□ Personal Place 2.0                 [開始]
-  開發
-
-□ 人體練習                           [開始]
-  繪圖
-
-需要留意
-今天到期 2 · 逾期 1                  [查看]
-
-接著做
-Personal Place
-上次做到：重新整理 Today hierarchy   [接著做]
+ORGANIZE PAGE
+→ select / reorder / edit / resize / move / group / delete
 ```
 
-The key point is hierarchy, not this exact typography.
-
-Do not wrap every section in equally weighted large cards.
-
-#### State B — Today has no planned Todo
-
-The empty state should give a gentle next step, not merely announce emptiness.
-
-Target behavior:
+Page now exposes contextual:
 
 ```text
-今天還沒安排
+整理
+完成整理
+```
 
-選一件現在值得做的事就好。
+Existing editing / selection / reorder / ContextActionBar machinery was reused rather than rewritten.
 
-[從待辦選一件]   [新增待辦]
+Normal Page cards no longer render:
+
+```text
+kind-label
+card-glow
+open-indicator
+```
+
+Whole-card opening remains semantic / keyboard accessible.
+
+Page definitions remain managed separately through:
+
+```text
+我的空間 → 管理
+```
+
+Delivered Place hierarchy:
+
+```text
+Place title
 
 上次做到
-<recent Place / continuation context if available>
-[接著做]
+<resumeNote>
+
+開始專注
+開啟這個地方
+整理
+
+內容
 ```
 
-This should feel directional but non-judgmental.
-
-Do not show completion pressure, streaks, scores, or “0 / N” shame states.
-
-#### State C — Focus is active but user manually returns to Today
-
-Today should not duplicate the full Focus controls.
-
-Show only a compact return path:
+Normal Place no longer leads with old dashboard metadata such as:
 
 ```text
-正在做
-Personal Place 2.0
-18:42                              [回到專注]
+YOUR PLACE
+CONTENTS
+item count / recent-use metadata
 ```
 
-Pause / resume / end belong to Focus Mode.
+`resumeNote` persistence behavior remains unchanged:
 
-### 4. Today planned work is the primary normal-state content
+- visible continuation content;
+- edit on demand;
+- 500ms autosave;
+- flush before Back;
+- save failure preserves draft.
 
-`plannedFor == today` represents explicit user intent and should receive the strongest task-level weight.
-
-A normal planned Todo row should expose one obvious action:
+Focus / launch separation has explicit regression coverage:
 
 ```text
-□ 這是代辦喔
-  學習                                 [開始]
+開始專注 → onStartFocus only
+開啟這個地方 → onLaunch only
 ```
 
-Management actions such as:
+Legacy Todo / Focus / Usage widgets remain compatible for later Stage 6 handling.
 
-- 移出今天
-- 改日期
-- 查看 / edit details
+### Stage 4 known non-blockers
 
-should be demoted to overflow, context menu, hover affordance, or another secondary interaction pattern.
+- interactive Tauri smoke was limited because port `1420` was already occupied;
+- `src/styles/dashboard.css` currently contains a likely dead selector:
 
-Principle:
-
-> **Before the user chooses a task, do not make them manage the task at the same visual priority as starting it.**
-
-### 5. Starting Focus is a mode transition
-
-The interaction contract should become:
-
-```text
-Today
-  ↓
-[開始]
-  ↓
-create linked Focus
-  ↓
-enter Focus Mode
+```css
+.launcher-grid.is-editing .organize-button
 ```
 
-Do not start Focus silently in the background while leaving the user in the planning interface.
+because the organize button lives in the topbar rather than inside `.launcher-grid`.
 
-Starting Focus means decision-making is over and the application should transition accordingly.
-
-### 6. Calendar in Today is a constraint, not a section competing for attention
-
-Calendar's role in Today is to answer:
-
-> How much uninterrupted time do I actually have before a fixed commitment?
-
-Therefore:
-
-#### No upcoming blocking event
-
-Show nothing.
-
-Do not give “今天沒有固定行程” a large permanent surface.
-
-#### Upcoming event
-
-Show compact secondary information near the Today heading or planned-work context, for example:
-
-```text
-下一個行程  14:00 開會 · 1 小時 20 分後
-```
-
-#### Event currently in progress
-
-It may receive slightly more weight, but still should not replace the user's primary work intent.
-
-Calendar is a **time constraint**, not an equal-level homepage module.
-
-### 7. Due / overdue are attention inputs, not the plan itself
-
-The 1.9 domain contract remains important:
-
-```text
-plannedFor != dueAt
-```
-
-The UI should reinforce this distinction.
-
-Do not show Today Planned, Due Today and Overdue as three equally dominant task lists.
-
-Target collapsed summary:
-
-```text
-需要留意
-今天到期 2 · 逾期 1                  [查看]
-```
-
-Expanded / detail state may show:
-
-```text
-今天到期
-□ 電費                               [排到今天]
-□ 回信                               [排到今天]
-
-逾期
-□ Unity Notes · 8/29                 [排到今天]
-```
-
-In this attention list, the primary action is **排到今天**, not Start Focus.
-
-Desired mental model:
-
-```text
-Deadline / overdue
-        ↓
-decide to plan it today
-        ↓
-Today Planned
-        ↓
-Start
-        ↓
-Focus
-```
-
-This teaches the planning model through interaction rather than documentation.
-
-### 8. Place / continuation language in Today
-
-Today should communicate the benefit of Place before teaching structural vocabulary.
-
-Prefer user-facing framing such as:
-
-```text
-接著做
-
-Personal Place
-
-上次做到：
-Today hierarchy 已定，下一步處理 sidebar。
-
-[接著做]
-```
-
-`resumeNote` may remain the internal field and `接續點` may still be useful in edit/detail contexts, but the normal Today experience should favor natural continuation language such as **上次做到**.
-
-Place should feel like returning to a working scene, not opening a folder.
-
-### 9. Page / home relationship
-
-Pages remain useful but are no longer competing home screens.
-
-Normal Page experience should increasingly feel like entering a personal space rather than an administration dashboard.
-
-At B level, resolve only the information hierarchy:
-
-- Page is intentionally entered from “My spaces”;
-- Page does not own startup;
-- normal Page mode should emphasize content / entry points;
-- editing metadata, movement, deletion, grouping and similar administration should be contextual to organize mode;
-- whether legacy Focus / usage widgets remain in Pages is deferred to D, where duplication and visual-system cleanup will be judged explicitly.
-
-### 10. Target product flow
-
-The resolved IA should be understood as one path rather than seven equal features:
-
-```text
-                    PERSONAL PLACE
-                          │
-                          ▼
-                        TODAY
-                          │
-             ┌────────────┼────────────┐
-             │            │            │
-             ▼            ▼            ▼
-         今天安排       接著做       時間約束
-             │          Place        Calendar
-             │
-             ▼
-           START
-             │
-             ▼
-           FOCUS
-             │
-             ▼
-        完成 / 結束
-             │
-             ▼
-          ACTIVITY
-
-Todo = source of things that may be planned
-Page = intentional entry into personal working spaces
-```
-
-The important conceptual change is:
-
-> Personal Place is no longer a collection of equally weighted destinations. It is a workflow with supporting spaces and review tools.
-
-### 11. B success criteria
-
-B is successful if the future implementation can make these statements true:
-
-- Opening Personal Place immediately communicates that Today is the place to start.
-- Without an active Focus, a returning user can choose something and begin within a few seconds.
-- With an active Focus, the product prioritizes returning to Focus rather than presenting alternatives.
-- An empty Today offers one gentle next step without creating pressure.
-- Calendar absence consumes no meaningful screen space.
-- Due / overdue remain visible when needed but do not override the user's explicit Today plan.
-- Starting a planned task visibly transitions into Focus Mode.
-- Place clearly communicates “continue from where I stopped”.
-- Page navigation is understandable as personal spaces rather than system-level workflow.
-- Organization / administration controls are hidden until the user enters an editing context.
-- Normal Today state has one obvious primary task action: **Start**.
+Do not create a special cleanup stage only for this selector; clean it during Stage 5 CSS consolidation.
 
 ---
 
-## C. Real Focus Mode — NEXT DESIGN PASS
+# NEXT — Stage 5: visual-system migration
 
-The current Focus page already contains a useful visual seed: large empty space, a strong central timer and lower information density than the rest of the app.
+Stage 5 is now the next implementation task.
 
-Do not discard it automatically.
+This is not another product-architecture redesign.
 
-The next pass should determine how to promote it from a “Focus Timer workspace” into a true **Personal Place Focus State**.
+The product flow and interaction hierarchy are already established.
 
-Questions to resolve:
+Stage 5 should make the accepted 2.0 architecture consistently look and feel like one product.
 
-- What is the minimum information required during Focus?
-- Should the sidebar disappear entirely, collapse, or become a single exit control?
-- How prominently should linked Todo / Place context appear relative to the timer?
-- Should pause / resume / end remain central while phase-selection controls disappear after Focus starts?
-- What information should only appear after Focus ends rather than during it?
-- How should breaks behave without turning Personal Place into a generic Pomodoro app?
-- What happens when the user intentionally leaves Focus Mode while the Focus session remains active?
+Primary scope from D:
 
-Core principle:
+```text
+typography
+spacing
+surface hierarchy
+radius hierarchy
+neutral / accent usage
+primary / secondary / destructive actions
+hover / focus / motion behavior
+responsive navigation
+CSS consolidation
+accessibility visual states
+```
 
-> **When the user has already decided what to do, the interface should safely stop offering alternatives.**
+### Visual energy hierarchy
+
+```text
+Focus     → quietest, one chosen work context, almost no navigation
+Today     → calm and directional
+Page      → wider intentional personal space
+Place     → work context + continuation
+Todo      → denser management workspace
+Calendar  → structured tool
+Activity  → retrospective review
+Settings  → denser configuration workspace
+```
+
+### D rules Stage 5 must enforce
+
+- one screen, one focal point;
+- neutral surfaces dominate;
+- accent color is semantic, not decorative;
+- avoid nested bordered rectangles;
+- use typography / spacing before another card;
+- remove remaining decorative glow / bloom / excessive gradients;
+- avoid huge hover elevation;
+- radius should communicate role rather than making everything equally rounded;
+- one primary action per local decision;
+- motion should be short and functional;
+- respect `prefers-reduced-motion`;
+- Focus must remain the quietest state;
+- responsive behavior must not collapse back into the old dense icon-rail identity.
+
+### Stage 5 must NOT
+
+Do not:
+
+- change product domain semantics;
+- change startup routing;
+- redesign Today IA again;
+- merge Focus and launch;
+- change schema / backup;
+- remove legacy Focus / Usage widgets yet;
+- turn visual cleanup into an AppShell rewrite.
 
 ---
 
-## D. Visual system redesign — AFTER C
+# Stage 6 — Legacy Focus / Usage widget bridge — PENDING
 
-Create a coherent visual system before individually restyling every component.
+After visual migration, handle legacy widget duplication and compatibility deliberately.
 
-The UI review already suggests these principles:
+Expected direction:
 
-1. **One screen should have one primary visual focal point.**
-2. **Empty states should not be visually louder than meaningful content.**
-3. **Planning mode may offer choices; Focus mode must remove choices.**
-4. **Page is a space, not a dashboard; metadata should be quiet by default.**
-5. **Today is the entry point; system navigation should reflect that priority over Pages.**
-6. **Activity / history is review information and should not intrude into active Focus.**
-7. **Personal Place provides direction without judging the user.**
+- stop offering new legacy Focus / Usage widgets in normal add flow;
+- preserve existing persisted cards safely;
+- keep old cards non-crashing;
+- relocate any still-needed Usage controls before deprecating its normal widget surface;
+- keep built-in Usage distinct from ActivityWatch / Activity;
+- do not delete user data.
 
-Define at minimum:
-
-- typography scale;
-- spacing scale;
-- surface hierarchy;
-- primary / secondary / destructive action hierarchy;
-- muted information rules;
-- semantic color rules;
-- maximum content density for focus-oriented views;
-- responsive / narrow-window behavior;
-- rules for when cards / borders are necessary versus when typography and whitespace are enough.
-
-The design goal is not “more polished dashboard”.
-
-The design goal is:
-
-> **less cognitive competition.**
+Canonical detail lives in D + implementation architecture.
 
 ---
 
-## Explicit non-goals before the consolidation work is complete
+# Stage 7 — Consolidation cleanup + final acceptance + release prep — PENDING
 
-Do not use new features to hide the product problem.
+Final stage should:
+
+- remove obsolete compatibility / CSS paths made unnecessary by Stages 0–6;
+- run final A / B / C / D acceptance review;
+- run full validation / desktop smoke;
+- inspect backup / recovery / accessibility / responsive behavior;
+- verify no hidden 1.9 Dashboard-first assumptions remain;
+- only then prepare 2.0 version / release work.
+
+Do not bump the version or publish 2.0 before Stage 7 acceptance.
+
+---
+
+# Explicit non-goals before 2.0 acceptance
+
+Do not use new features to hide consolidation work.
 
 Avoid prioritizing:
 
 - AI task recommendations;
 - productivity scores;
-- streaks or gamified pressure;
-- automatic prioritization algorithms;
+- streaks / gamification;
+- automatic prioritization;
 - additional dashboard widgets;
-- additional Calendar integrations;
-- cloud accounts / sync;
+- new Calendar integrations;
+- cloud sync / accounts;
 - more Activity metrics;
 - more launcher features;
 - additional planning fields;
 - complex automation.
 
-These may be useful later, but they do not answer the current problem.
+These may be considered after the core product is coherent.
 
 ---
 
-## Architect checklist status
+# Current success criteria
 
-Before producing a major Luna implementation handoff:
-
-1. What is the single primary job of Personal Place? **Answered in A.**
-2. What should a brand-new user do in the first 30 seconds? **Answered in A.**
-3. What should a returning user do in the first 10 seconds? **Answered in A + B.**
-4. Should Today become the default landing experience? **Yes, resolved in B.**
-5. What is the minimum information needed before starting Focus? **Partially answered in B; finalize in C.**
-6. What disappears once Focus starts? **Resolve in C.**
-7. How should Place be explained without teaching database-like structure? **Answered in A + B.**
-8. Which current UI elements compete for attention without enough value? **Initial diagnosis complete; finalize deletions in D.**
-9. What should the application feel like visually? **Answered in A.**
-10. Which parts of the current UI should be deleted rather than redesigned? **Resolve during C / D before implementation handoff.**
-
----
-
-## Success criteria for the 2.0 UX pass
-
-A successful redesign should make these statements true:
+A final 2.0 should make these statements true:
 
 - A new user can explain what Personal Place does after using it briefly.
-- The default screen has an obvious first action.
-- The user does not need to understand every domain before receiving value.
-- Planning and focusing feel like one continuous workflow.
-- Place provides an obvious continuation benefit rather than feeling like mandatory categorization.
-- Focus Mode visually reduces distraction instead of adding another dashboard.
+- Today is obviously where work begins.
+- The user receives value before understanding every domain.
+- Planning and Focus feel like one continuous workflow.
+- Place provides obvious continuation value.
+- Focus visibly removes alternatives.
+- Page browsing does not look like administration.
+- Organize controls appear only when the user intentionally organizes.
 - Primary and secondary information are immediately distinguishable.
 - The interface feels calmer and more intentional than v1.9.0.
-- The interface feels private and non-judgmental rather than performance-oriented.
-- New functionality is not required to achieve the core improvement.
+- The interface feels private and non-judgmental.
+- No new feature is required to achieve the core 2.0 improvement.
 
 ---
 
-## Guidance for future Sol → Luna work
+# New-conversation continuation checklist
 
-Do **not** turn A or B directly into a CODEX implementation handoff yet.
+When continuing 2.0 work in a fresh conversation:
 
-Complete the design sequence first:
+1. Read this `TODO.md` first.
+2. Read [`PRODUCT_2_0_D_VISUAL_SYSTEM.md`](PRODUCT_2_0_D_VISUAL_SYSTEM.md).
+3. Read the Stage 5 section of [`PRODUCT_2_0_IMPLEMENTATION_ARCHITECTURE.md`](PRODUCT_2_0_IMPLEMENTATION_ARCHITECTURE.md).
+4. Inspect current `master` starting from accepted checkpoint `0c94310` (or newer if this TODO itself has been committed afterward).
+5. Confirm no unrelated local / remote changes.
+6. Produce a bounded **Stage 5 Sol → Luna handoff**.
+7. Review Luna's actual GitHub diff before accepting Stage 5.
+8. Do not restart A / B / C / D design unless implementation reveals a genuine contradiction.
 
-1. **A — product narrative** ✅
-2. **B — Today / Home IA** ✅
-3. **C — real Focus Mode** ← next
-4. **D — visual system + explicit deletion / demotion decisions**
-5. only then produce an implementation plan for Luna
-
-The next useful work is still product consolidation, not another pile of features.
+The next task is **Stage 5 visual-system migration**, not another product-definition pass.
