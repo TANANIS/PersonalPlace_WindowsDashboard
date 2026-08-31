@@ -290,12 +290,15 @@ export function TodoDialog({ widget, onClose, onWidgetListChanged, onWidgetChang
         <div className={`todo-layout${editorOpen ? " has-inspector" : ""}`}>
           <aside className="todo-lists" aria-label="待辦清單">
             <strong>清單</strong>
-            {overview?.lists.filter((list) => !list.archivedAt).map((list) => (
-              <button type="button" className={list.id === listId ? "is-active" : ""} key={list.id} onClick={() => void chooseList(list.id)}>
-                <span>{list.title}</span>
-                <small>{overview.items.filter((item) => item.listId === list.id && item.status === "active").length}</small>
-              </button>
-            ))}
+            {overview?.lists.filter((list) => !list.archivedAt).map((list) => {
+              const activeCount = overview.items.filter((item) => item.listId === list.id && item.status === "active").length;
+              return (
+                <button type="button" className={list.id === listId ? "is-active" : ""} key={list.id} onClick={() => void chooseList(list.id)}>
+                  <span className="todo-list-name">{list.title}</span>
+                  <small className="todo-list-count" aria-label={`${activeCount} 項未完成`}>{activeCount}</small>
+                </button>
+              );
+            })}
             <form onSubmit={(event) => { event.preventDefault(); void createList(); }}>
               <input value={newListTitle} maxLength={120} onChange={(event) => setNewListTitle(event.target.value)} placeholder="新增清單" aria-label="新增清單名稱" />
               <button type="submit" disabled={!newListTitle.trim() || busy} aria-label="建立清單">＋</button>

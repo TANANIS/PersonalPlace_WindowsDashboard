@@ -1169,7 +1169,7 @@ export function AppShell() {
         </header>
 
         {!persistenceReady && <section className="status-strip" aria-live="polite"><span className="status-dot" /><span>正在準備本機資料…</span></section>}
-        {editing && <div className="edit-mode-hint"><span>整理模式</span><small>點選卡片後集中操作，或按住卡片空白處直接拖曳</small><button type="button" onClick={() => setSelectedIds(new Set(visibleCards.map((card) => card.id)))}>全選</button></div>}
+        {editing && <div className="edit-mode-hint"><strong>整理模式</strong><small>點選卡片後集中操作，或按住卡片空白處直接拖曳</small><button type="button" onClick={() => setSelectedIds(new Set(visibleCards.map((card) => card.id)))}>全選</button></div>}
 
         <section className={`launcher-grid ${editing ? "is-editing" : ""}`} role={editing ? "listbox" : undefined} aria-multiselectable={editing ? true : undefined}>
           {visibleCards.map((card) => {
