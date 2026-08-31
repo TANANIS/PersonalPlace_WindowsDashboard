@@ -107,7 +107,8 @@ import {
   type RecoveryInfo,
 } from "../platform/system";
 import { setTodoCompleted } from "../platform/todo";
-import { resolveStartupRoute } from "./startupRouting";
+import { useStartupRouteGate } from "./startupRouting";
+import { StartupErrorScreen } from "./StartupErrorScreen";
 import { getUsageSummary, type UsageSummary } from "../platform/usage";
 import type {
   DashboardCard,
@@ -185,7 +186,8 @@ export function AppShell() {
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
   const [widgetActionBusy, setWidgetActionBusy] = useState(false);
   const [cardEditError, setCardEditError] = useState<string | null>(null);
-  const [startupRouteResolved, setStartupRouteResolved] = useState(() => !isTauriRuntime() && Boolean(demoMode));
+  const [startupError, setStartupError] = useState<string | null>(null);
+  const [startupAttempt, setStartupAttempt] = useState(0);
   const [repairError, setRepairError] = useState<string | null>(null);
   const [targetStatuses, setTargetStatuses] = useState<Record<string, TargetAvailability>>({});
   const [recoveryInfo, setRecoveryInfo] = useState<RecoveryInfo | null>(() =>
@@ -214,7 +216,6 @@ export function AppShell() {
   const openGroupId = view.kind === "place" ? view.groupId : null;
   const openGroupIdRef = useRef(openGroupId);
   const readyRef = useRef(false);
-  const startupDecisionRef = useRef(false);
   const dropApprovalsRef = useRef(
     new Map<string, { allowDuplicate: boolean; allowRisky: boolean }>(),
   );
@@ -238,6 +239,9 @@ export function AppShell() {
 
   useEffect(() => {
     let disposed = false;
+    readyRef.current = false;
+    setStartupError(null);
+    setPersistenceReady(false);
     if (!isTauriRuntime()) {
       readyRef.current = true;
       setPersistenceReady(true);
@@ -268,19 +272,27 @@ export function AppShell() {
           }
           return;
         }
-        setNotice(platformErrorMessage(error, "無法載入本機資料庫。"));
+        setStartupError(platformErrorMessage(error, "無法載入本機資料庫。"));
       });
     return () => {
       disposed = true;
     };
-  }, [legacyState]);
+  }, [legacyState, startupAttempt]);
 
-  useEffect(() => {
-    if (startupDecisionRef.current || startupRouteResolved || recoveryInfo || !persistenceReady || !focusController.ready) return;
-    startupDecisionRef.current = true;
-    setStartupRouteResolved(true);
-    setView(resolveStartupRoute(focusController.state) === "focusMode" ? { kind: "focusMode" } : systemWorkspaceView("today"));
-  }, [focusController.ready, focusController.state, persistenceReady, recoveryInfo, startupRouteResolved]);
+  function retryStartup() {
+    setRecoveryInfo(null);
+    setStartupError(null);
+    setStartupAttempt((attempt) => attempt + 1);
+  }
+
+  const startupRouteResolved = useStartupRouteGate({
+    enabled: !recoveryInfo && !startupError && persistenceReady,
+    focusReady: focusController.ready,
+    focusState: focusController.state,
+    initialResolved: !isTauriRuntime() && Boolean(demoMode),
+    resetKey: startupAttempt,
+    onResolve: (route) => setView(route === "focusMode" ? { kind: "focusMode" } : systemWorkspaceView("today")),
+  });
 
   useEffect(() => {
     stateRef.current = state;
@@ -1003,6 +1015,10 @@ export function AppShell() {
     );
   }
 
+  if (startupError) {
+    return <StartupErrorScreen message={startupError} onRetry={retryStartup} />;
+  }
+
   if (!startupRouteResolved) {
     return <div className="app-shell startup-shell" role="status" aria-live="polite"><main className="startup-loading"><span className="status-dot" /><p>正在準備 Personal Place…</p></main></div>;
   }
@@ -1074,7 +1090,7 @@ export function AppShell() {
             editing={editing}
             busy={mutationBusy}
             onBack={leaveGroup}
-            backLabel={`返回 ${activePage.name}`}
+            backLabel={viewBackLabel}
             onAddTarget={() => setOverlay({ kind: "add", pageId: openGroup.pageId, groupId: openGroup.id })}
             onCreateNote={() => void createNoteInContainer(openGroup.id)}
             onOpenCard={(card) => void launch(card)}
