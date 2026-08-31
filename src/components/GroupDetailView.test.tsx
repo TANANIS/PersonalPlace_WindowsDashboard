@@ -93,9 +93,21 @@ describe("GroupDetailView", () => {
 
   it("shows an action-oriented empty resume state", () => {
     renderView();
-    expect(screen.getByText("留下接續點")).toBeInTheDocument();
+    expect(screen.getByText("還沒有留下進度。")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /接續點/ }));
     expect(screen.getByPlaceholderText(/角色移動完成/)).toBeInTheDocument();
+  });
+
+  it("prioritizes the Place title and visible continuation in normal mode", () => {
+    const onToggleEditing = vi.fn();
+    renderView({ group: { ...group, resumeNote: "下一步整理 Page / Place。" }, onToggleEditing });
+    expect(screen.getByRole("heading", { name: "Unity 學習" })).toBeInTheDocument();
+    expect(screen.getByText("上次做到")).toBeInTheDocument();
+    expect(screen.getByText("下一步整理 Page / Place。")).toBeInTheDocument();
+    expect(screen.queryByText("YOUR PLACE")).not.toBeInTheDocument();
+    expect(screen.queryByText("CONTENTS")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "整理" }));
+    expect(onToggleEditing).toHaveBeenCalledTimes(1);
   });
 
   it("flushes a dirty resume before going back", async () => {
@@ -130,6 +142,21 @@ describe("GroupDetailView", () => {
       expect.objectContaining({ id: "card-1" }),
       true,
     );
+  });
+
+  it("keeps Start Focus and work-environment launch as separate actions", async () => {
+    const onStartFocus = vi.fn().mockResolvedValue(undefined);
+    const onLaunch = vi.fn().mockResolvedValue({
+      groupId: "group-1",
+      items: [{ cardId: "card-1", title: "Unity", status: "success" }],
+    });
+    renderView({ cards: [card({ launchEnabled: true })], onStartFocus, onLaunch });
+    fireEvent.click(screen.getByRole("button", { name: "開始專注" }));
+    await waitFor(() => expect(onStartFocus).toHaveBeenCalledTimes(1));
+    expect(onLaunch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /開啟這個地方/ }));
+    await waitFor(() => expect(onLaunch).toHaveBeenCalledTimes(1));
+    expect(onStartFocus).toHaveBeenCalledTimes(1);
   });
 
   it("逐項開啟結果會停留直到使用者關閉", async () => {

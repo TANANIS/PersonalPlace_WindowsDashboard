@@ -1,0 +1,8 @@
+.topbar-actions { align-items: center; }
+.organize-button { min-width: 78px; }
+.launcher-grid:not(.is-editing) .launcher-card { min-height: 148px; border-radius: 14px; box-shadow: none; }
+.launcher-grid:not(.is-editing) .launcher-card:hover { transform: translateY(-2px); }
+.launcher-grid:not(.is-editing) .card-heading { justify-content: flex-start; }
+.launcher-grid:not(.is-editing) .card-copy h2 { font-size: 1.08rem; }
+.launcher-grid:not(.is-editing) .card-copy p { color: var(--text-secondary); }
+.launcher-grid.is-editing .organize-button { border-color: var(--accent); }

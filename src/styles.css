@@ -304,22 +304,6 @@ textarea:focus-visible,
   animation: edit-pulse 1.8s ease-in-out infinite alternate;
 }
 
-.launcher-grid.is-editing .kind-label {
-  visibility: hidden;
-}
-
-.card-glow {
-  position: absolute;
-  right: -45px;
-  bottom: -70px;
-  width: 170px;
-  height: 170px;
-  border-radius: 50%;
-  background: var(--tone);
-  filter: blur(42px);
-  opacity: 0.16;
-}
-
 .card-preview-media {
   position: absolute;
   z-index: 0;
@@ -367,8 +351,7 @@ textarea:focus-visible,
 .tone-slate { --tone: #b5c4df; }
 
 .card-heading,
-.card-copy,
-.open-indicator {
+.card-copy {
   position: relative;
   z-index: 1;
 }
@@ -396,13 +379,6 @@ textarea:focus-visible,
   height: 29px;
   object-fit: contain;
   filter: drop-shadow(0 4px 9px rgba(0, 0, 0, 0.3));
-}
-
-.kind-label {
-  color: #596477;
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
 }
 
 .card-copy h2 {
@@ -602,13 +578,6 @@ textarea:focus-visible,
 
 .launcher-card.size-wide .note-card-preview {
   -webkit-line-clamp: 5;
-}
-
-.open-indicator {
-  position: absolute;
-  right: 17px;
-  bottom: 15px;
-  color: rgba(255, 255, 255, 0.35);
 }
 
 .edit-controls {
@@ -1355,7 +1324,6 @@ textarea:focus-visible,
   }
 
   .status-dot,
-  .card-glow,
   .card-preview-media {
     display: none;
   }
@@ -2143,7 +2111,6 @@ h1 { font-size: clamp(2rem, 3vw, 3.25rem); font-weight: 720; letter-spacing: -.0
 }
 
 .launcher-card.size-wide { grid-column: span 2; }
-.card-glow { display: none; }
 .card-preview-media::after { background: linear-gradient(180deg, rgba(11,16,23,.14), rgba(11,16,23,.86)); }
 .card-preview-media img { opacity: .54; }
 .launcher-card:hover .card-preview-media img { opacity: .64; transform: scale(1.025); }
@@ -2162,7 +2129,6 @@ h1 { font-size: clamp(2rem, 3vw, 3.25rem); font-weight: 720; letter-spacing: -.0
   border-radius: 11px;
   background: color-mix(in srgb, var(--tone) 7%, var(--surface-2));
 }
-.kind-label { color: #708092; font-size: .6rem; }
 .card-copy h2 { margin-bottom: 6px; font-size: 1.06rem; }
 .card-copy p { color: #9aa7b8; font-size: .8rem; }
 
@@ -2909,7 +2875,6 @@ textarea:focus-visible,
   background: linear-gradient(145deg, color-mix(in srgb, var(--surface-3) 82%, var(--accent) 18%), var(--surface-2));
 }
 :root[data-color-theme] .eyebrow,
-:root[data-color-theme] .kind-label,
 :root[data-color-theme] .card-copy p,
 :root[data-color-theme] .form-hint,
 :root[data-color-theme] .save-state,
@@ -3887,11 +3852,9 @@ textarea:focus-visible,
   outline-offset: -3px;
 }
 
-.launcher-card .card-heading,
-.launcher-card .card-copy,
-.launcher-card .open-indicator,
-.launcher-card .card-glow,
-.launcher-card .card-preview-media {
+  .launcher-card .card-heading,
+  .launcher-card .card-copy,
+  .launcher-card .card-preview-media {
   position: relative;
   z-index: 3;
   pointer-events: none;

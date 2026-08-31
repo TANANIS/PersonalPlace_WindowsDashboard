@@ -118,15 +118,6 @@ import type {
   WorkspaceState,
 } from "../types";
 
-function kindLabel(card: DashboardCard): string {
-  if (card.cardType === "group") return "PLACE";
-  if (card.cardType === "note") return "NOTE";
-  if (card.cardType === "widget") return "TOOL";
-  if (card.kind === "web") return "WEB";
-  if (card.kind === "local") return "LOCAL";
-  return "APP";
-}
-
 function searchResultTypeLabel(result: DashboardSearchResult): string {
   if (result.subtitle) return result.subtitle;
   if (result.resultType === "group") return "Place";
@@ -1091,6 +1082,7 @@ export function AppShell() {
             busy={mutationBusy}
             onBack={leaveGroup}
             backLabel={viewBackLabel}
+            onToggleEditing={toggleEditingMode}
             onAddTarget={() => setOverlay({ kind: "add", pageId: openGroup.pageId, groupId: openGroup.id })}
             onCreateNote={() => void createNoteInContainer(openGroup.id)}
             onOpenCard={(card) => void launch(card)}
@@ -1155,6 +1147,7 @@ export function AppShell() {
               </div>}
             </div>
             <button className="button primary add-content-button" disabled={!persistenceReady || mutationBusy} onClick={() => setOverlay({ kind: "add", pageId: activePage.id })}>＋ 加入</button>
+            <button className="button secondary organize-button" type="button" disabled={!persistenceReady || mutationBusy} aria-pressed={editing} onClick={toggleEditingMode}>{editing ? "完成整理" : "整理"}</button>
           </div>
         </header>
 
@@ -1230,7 +1223,6 @@ export function AppShell() {
               >
                 {!editing && <button type="button" className="card-open-surface" aria-label={`開啟 ${card.title}`} onClick={() => void launch(card)} />}
                 {preview && !compactPreview && <div className="card-preview-media" aria-hidden="true"><img src={preview.assetUrl} alt="" loading="lazy" decoding="async" onLoad={recordPreviewDimensions} /></div>}
-                <div className="card-glow" />
                 <div className="card-heading">
                   {card.cardType === "group" ? (
                     <span className="group-symbol-stack" aria-hidden="true">
@@ -1239,7 +1231,6 @@ export function AppShell() {
                   ) : (
                     <span className="item-symbol" aria-hidden="true">{preview && compactPreview ? <img className="system-icon" src={preview.assetUrl} alt="" loading="lazy" decoding="async" onLoad={recordPreviewDimensions} /> : card.symbol}</span>
                   )}
-                  {card.cardType !== "widget" && <span className="kind-label">{kindLabel(card)}</span>}
                 </div>
                 <div className="card-copy">
                   {renamingGroupId === card.id ? (
@@ -1271,7 +1262,6 @@ export function AppShell() {
                     />
                   ) : <p className={card.cardType === "note" ? "note-card-preview" : undefined}>{card.cardType === "group" ? `${children.length} 個項目` : card.cardType === "note" ? card.noteText.trim() || zhTW.notes.empty : card.subtitle}</p>}
                 </div>
-                {card.cardType === "target" && <span className="open-indicator" aria-hidden="true">↗</span>}
                 {targetProblem && !editing && <button type="button" className="card-repair-button" onClick={(event) => { event.stopPropagation(); setRepairError(null); setOverlay({ kind: "repair", cardId: card.id }); }}>! 重新定位</button>}
                 {editing && selected && <button type="button" className="card-more-button" data-no-card-drag onClick={(event) => { event.stopPropagation(); setCardEditError(null); if (card.cardType === "note") navigateToAppView({ kind: "note", cardId: card.id, origin: captureOrigin(), startEditing: true }); else setOverlay({ kind: "cardInspector", cardId: card.id }); }} aria-label={`編輯 ${card.title}`}>⋯</button>}
               </article>

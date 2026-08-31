@@ -29,6 +29,7 @@ interface GroupDetailViewProps {
   onSaveResume: (value: string) => Promise<void>;
   onLaunch: () => Promise<GroupLaunchResult>;
   onStartFocus?: () => Promise<void>;
+  onToggleEditing?: () => void;
 }
 
 type SaveState = "idle" | "saving" | "saved" | "failed";
@@ -62,6 +63,7 @@ export function GroupDetailView({
   onSaveResume,
   onLaunch,
   onStartFocus,
+  onToggleEditing,
 }: GroupDetailViewProps) {
   const [resumeDraft, setResumeDraft] = useState(group.resumeNote);
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -183,26 +185,25 @@ export function GroupDetailView({
           <button type="button" className="back-button" onClick={() => void handleBack()}>
             ← {backLabel}
           </button>
-          <p className="eyebrow">YOUR PLACE</p>
           <h1 id="place-detail-title">{group.title}</h1>
-          <p>{cards.length} 個項目{group.lastOpenedAt ? " · 最近使用過" : ""}</p>
         </div>
         <div className="place-detail-actions">
           <button
             type="button"
-            className="button primary"
+            className="button secondary place-launch-button"
             disabled={busy || launching || launchCount === 0}
             onClick={() => void runLaunch()}
           >
             {launching ? "正在開啟…" : `開啟這個地方${launchCount ? ` (${launchCount})` : ""}`}
           </button>
-          {onStartFocus && <button type="button" className="button secondary" disabled={busy || launching} onClick={() => void onStartFocus()}>開始專注</button>}
+          {onStartFocus && <button type="button" className="button primary" disabled={busy || launching} onClick={() => void onStartFocus()}>開始專注</button>}
+          {onToggleEditing && <button type="button" className="button tertiary place-edit-button" aria-pressed={editing} onClick={onToggleEditing}>{editing ? "完成整理" : "整理"}</button>}
         </div>
       </header>
 
       <section className={`place-resume-summary${resumeExpanded ? " is-expanded" : ""}`}>
-        <button type="button" className="place-resume-toggle" aria-expanded={resumeExpanded} onClick={() => setResumeExpanded((current) => !current)}>
-          <span><small>接續點</small><strong>{resumeDraft.trim() || "留下接續點"}</strong></span><span aria-hidden="true">{resumeExpanded ? "收起" : resumeDraft.trim() ? "更新" : "新增"}</span>
+        <button type="button" className="place-resume-toggle" aria-expanded={resumeExpanded} aria-label={`上次做到；接續點；${resumeExpanded ? "收起" : resumeDraft.trim() ? "更新" : "記下進度"}`} onClick={() => setResumeExpanded((current) => !current)}>
+          <span><small>上次做到</small><strong>{resumeDraft.trim() || "還沒有留下進度。"}</strong></span><span aria-hidden="true">{resumeExpanded ? "收起" : resumeDraft.trim() ? "更新" : "記下進度"}</span>
         </button>
         {resumeExpanded && <div className="place-resume-editor"><label className="sr-only" htmlFor="resume-note">接續點</label><textarea id="resume-note" value={resumeDraft} maxLength={2000} rows={5} autoFocus placeholder="例如：角色移動完成；下一步做跳躍動畫。" onChange={(event) => { resumeDraftRef.current = event.target.value; setResumeDraft(event.target.value); }} onBlur={() => void flushResume().catch(() => undefined)} /><div className={`save-state is-${saveState}`} role="status">{saveState === "saving" && "保存中…"}{saveState === "saved" && "已保存"}{saveState === "failed" && "保存失敗，內容仍保留在畫面上"}{saveState === "idle" && `${resumeDraft.length} / 2,000`}</div></div>}
       </section>
@@ -211,8 +212,7 @@ export function GroupDetailView({
         <div className="place-main-column">
           <div className="place-section-heading">
             <div>
-              <p className="eyebrow">CONTENTS</p>
-              <h2>這個地方的內容</h2>
+              <h2>內容</h2>
             </div>
             <div>
               <button type="button" className="button secondary" onClick={onCreateNote} disabled={busy}>
