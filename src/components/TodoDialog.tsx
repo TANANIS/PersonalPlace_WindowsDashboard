@@ -32,6 +32,7 @@ interface TodoDialogProps {
   embedded?: boolean;
   backLabel?: string;
   showBackButton?: boolean;
+  initialCreate?: boolean;
 }
 
 export interface TodoWidgetBinding {
@@ -114,7 +115,7 @@ function itemToInput(item: TodoItem): TodoItemInput {
   };
 }
 
-export function TodoDialog({ widget, onClose, onWidgetListChanged, onWidgetChanged, onChanged = () => undefined, embedded = false, backLabel = "返回頁面", showBackButton = embedded }: TodoDialogProps) {
+export function TodoDialog({ widget, onClose, onWidgetListChanged, onWidgetChanged, onChanged = () => undefined, embedded = false, backLabel = "返回頁面", showBackButton = embedded, initialCreate = false }: TodoDialogProps) {
   const [overview, setOverview] = useState<TodoOverview | null>(null);
   const [listId, setListId] = useState(widget?.widgetResourceId ?? "");
   const [filter, setFilter] = useState<TodoFilter>("all");
@@ -126,6 +127,10 @@ export function TodoDialog({ widget, onClose, onWidgetListChanged, onWidgetChang
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useModalFocus<HTMLElement>(!embedded, onClose);
+
+  useEffect(() => {
+    if (initialCreate) { setEditingId(null); setDraft(emptyInput); setEditorOpen(true); }
+  }, [initialCreate]);
 
   useEffect(() => {
     let disposed = false;

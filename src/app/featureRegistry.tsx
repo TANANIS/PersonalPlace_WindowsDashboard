@@ -1,16 +1,11 @@
-import type { ReactNode } from "react";
-import { ActivityWorkspace } from "../components/ActivityWorkspace";
-import { CalendarWorkspace } from "../features/calendar/CalendarWorkspace";
-import { TodayWorkspace } from "../features/today/TodayWorkspace";
-import { TodoWorkspace } from "../features/todo/TodoWorkspace";
-
 export interface SystemWorkspaceDefinition {
-  id: string;
+  id: "today" | "todo" | "calendar" | "activity";
   title: string;
-  icon: ReactNode;
+  icon: string;
   sidebarClassName?: string;
   searchKeywords?: readonly string[];
-  render: () => ReactNode;
+  navigationGroup: "core" | "support";
+  navigationOrder: number;
 }
 
 const systemWorkspaces: readonly SystemWorkspaceDefinition[] = [
@@ -19,29 +14,32 @@ const systemWorkspaces: readonly SystemWorkspaceDefinition[] = [
     title: "今天",
     icon: "☀",
     searchKeywords: ["today", "今天"],
-    render: () => <TodayWorkspace />,
+    navigationGroup: "core",
+    navigationOrder: 1,
   },
   {
     id: "todo",
     title: "待辦",
     icon: "✓",
     searchKeywords: ["todo", "待辦", "清單"],
-    render: () => <TodoWorkspace />,
-  },
-  {
-    id: "activity",
-    title: "活動",
-    icon: "◷",
-    sidebarClassName: "activity-sidebar-button",
-    searchKeywords: ["activity", "ActivityWatch", "活動"],
-    render: () => <ActivityWorkspace />,
+    navigationGroup: "core",
+    navigationOrder: 2,
   },
   {
     id: "calendar",
     title: "行事曆",
     icon: "▦",
     searchKeywords: ["calendar", "ics", "行事曆", "日曆"],
-    render: () => <CalendarWorkspace />,
+    navigationGroup: "support",
+    navigationOrder: 3,
+  },
+  {
+    id: "activity",
+    title: "活動",
+    icon: "◷",
+    searchKeywords: ["activity", "ActivityWatch", "活動"],
+    navigationGroup: "support",
+    navigationOrder: 4,
   },
 ];
 

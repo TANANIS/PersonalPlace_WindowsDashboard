@@ -3,7 +3,7 @@ import { getSystemWorkspace, getSystemWorkspaces } from "./featureRegistry";
 
 describe("system workspace registry", () => {
   it("exposes system workspaces through stable definitions", () => {
-    expect(getSystemWorkspaces().map((workspace) => workspace.id)).toEqual(["today", "todo", "activity", "calendar"]);
+    expect(getSystemWorkspaces().map((workspace) => workspace.id)).toEqual(["today", "todo", "calendar", "activity"]);
     expect(getSystemWorkspace("activity")).toMatchObject({
       id: "activity",
       title: "活動",
@@ -13,6 +13,8 @@ describe("system workspace registry", () => {
       id: "calendar",
       title: "行事曆",
       searchKeywords: ["calendar", "ics", "行事曆", "日曆"],
+      navigationGroup: "support",
+      navigationOrder: 3,
     });
   });
 

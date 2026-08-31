@@ -18,7 +18,7 @@ export interface FocusController {
   clearCompletion: () => void;
 }
 
-export function useFocusController(): FocusController {
+export function useFocusController({ enabled = true }: { enabled?: boolean } = {}): FocusController {
   const [state, setState] = useState<FocusState | null>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -43,7 +43,10 @@ export function useFocusController(): FocusController {
     } finally { setReady(true); }
   }, []);
 
-  useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(), 1_000); return () => window.clearInterval(timer); }, [refresh]);
+  useEffect(() => {
+    if (!enabled) { setReady(false); return; }
+    void refresh(); const timer = window.setInterval(() => void refresh(), 1_000); return () => window.clearInterval(timer);
+  }, [enabled, refresh]);
 
   const operate = useCallback(async (operation: () => Promise<FocusState>, outcome?: "stopped" | "skipped") => {
     if (busy) throw new Error("Focus 操作進行中");

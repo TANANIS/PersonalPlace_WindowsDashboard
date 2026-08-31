@@ -13,6 +13,7 @@ import { buildLabel, loadAppVersion } from "./buildMetadata";
 import { PageManagerDialog } from "../components/PageManagerDialog";
 import { GroupDetailView } from "../components/GroupDetailView";
 import { TodayWorkspace } from "../features/today/TodayWorkspace";
+import { TodoWorkspace } from "../features/todo/TodoWorkspace";
 import { FocusMode } from "../features/focus/FocusMode";
 import { useFocusController, type StartFocusRequest } from "../features/focus/useFocusController";
 import { NoteWorkspace } from "../components/NoteWorkspace";
@@ -22,6 +23,7 @@ import { RecoveryScreen } from "../components/RecoveryScreen";
 import { UndoBar } from "../components/UndoBar";
 import { GuideDialog } from "../components/GuideDialog";
 import { TodoDialog } from "../components/TodoDialog";
+import { ActivityWorkspace } from "../components/ActivityWorkspace";
 import { FocusDialogSafe } from "../FocusDialogSafe";
 import { UsageDialog } from "../components/UsageDialog";
 import { WidgetCardPreview } from "../components/WidgetCardPreview";
@@ -43,6 +45,7 @@ import {
 } from "./navigation";
 import { getSystemWorkspace, getSystemWorkspaces } from "./featureRegistry";
 import { CalendarSourceManagement } from "../features/calendar/CalendarWorkspace";
+import { CalendarWorkspace } from "../features/calendar/CalendarWorkspace";
 import { loadLegacyState } from "../lib/storage";
 import { useModalFocus } from "../lib/accessibility";
 import { zhTW } from "../i18n/zh-TW";
@@ -104,6 +107,7 @@ import {
   type RecoveryInfo,
 } from "../platform/system";
 import { setTodoCompleted } from "../platform/todo";
+import { resolveStartupRoute } from "./startupRouting";
 import { getUsageSummary, type UsageSummary } from "../platform/usage";
 import type {
   DashboardCard,
@@ -159,8 +163,9 @@ export function AppShell() {
   const [mutationBusy, setMutationBusy] = useState(false);
   const [undoMessage, setUndoMessage] = useState<string | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
-  const [view, setView] = useState<AppView>(() => dashboardView(browserInitial.pages[0]?.id ?? "home"));
+  const [view, setView] = useState<AppView>(() => !isTauriRuntime() && !demoMode ? systemWorkspaceView("today") : dashboardView(browserInitial.pages[0]?.id ?? "home"));
   const [overlay, setOverlay] = useState<OverlayState>(null);
+  const [todoEntryMode, setTodoEntryMode] = useState<"browse" | "create">("browse");
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
@@ -174,12 +179,13 @@ export function AppShell() {
   const [cacheInfo, setCacheInfo] = useState<PreviewCacheInfo | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
   const [widgetSummaries, setWidgetSummaries] = useState<Record<string, WidgetSummary>>({});
-  const focusController = useFocusController();
+  const [persistenceReady, setPersistenceReady] = useState(false);
+  const focusController = useFocusController({ enabled: !isTauriRuntime() || persistenceReady });
   const focusState = focusController.state;
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
   const [widgetActionBusy, setWidgetActionBusy] = useState(false);
   const [cardEditError, setCardEditError] = useState<string | null>(null);
-  const [persistenceReady, setPersistenceReady] = useState(false);
+  const [startupRouteResolved, setStartupRouteResolved] = useState(() => !isTauriRuntime() && Boolean(demoMode));
   const [repairError, setRepairError] = useState<string | null>(null);
   const [targetStatuses, setTargetStatuses] = useState<Record<string, TargetAvailability>>({});
   const [recoveryInfo, setRecoveryInfo] = useState<RecoveryInfo | null>(() =>
@@ -208,6 +214,7 @@ export function AppShell() {
   const openGroupId = view.kind === "place" ? view.groupId : null;
   const openGroupIdRef = useRef(openGroupId);
   const readyRef = useRef(false);
+  const startupDecisionRef = useRef(false);
   const dropApprovalsRef = useRef(
     new Map<string, { allowDuplicate: boolean; allowRisky: boolean }>(),
   );
@@ -267,6 +274,13 @@ export function AppShell() {
       disposed = true;
     };
   }, [legacyState]);
+
+  useEffect(() => {
+    if (startupDecisionRef.current || startupRouteResolved || recoveryInfo || !persistenceReady || !focusController.ready) return;
+    startupDecisionRef.current = true;
+    setStartupRouteResolved(true);
+    setView(resolveStartupRoute(focusController.state) === "focusMode" ? { kind: "focusMode" } : systemWorkspaceView("today"));
+  }, [focusController.ready, focusController.state, persistenceReady, recoveryInfo, startupRouteResolved]);
 
   useEffect(() => {
     stateRef.current = state;
@@ -333,8 +347,9 @@ export function AppShell() {
     scheduleMainScroll(0);
   }
 
-  function showSystemWorkspace(workspaceId: string) {
+  function showSystemWorkspace(workspaceId: string, todoMode: "browse" | "create" = "browse") {
     setView(systemWorkspaceView(workspaceId));
+    setTodoEntryMode(workspaceId === "todo" ? todoMode : "browse");
     setEditing(false);
     setSelectedIds(new Set());
     setSelectionAnchor(null);
@@ -988,68 +1003,40 @@ export function AppShell() {
     );
   }
 
+  if (!startupRouteResolved) {
+    return <div className="app-shell startup-shell" role="status" aria-live="polite"><main className="startup-loading"><span className="status-dot" /><p>正在準備 Personal Place…</p></main></div>;
+  }
+
   return (
     <div className={`app-shell${view.kind === "focusMode" ? " is-focus-mode" : ""}`}>
-      {view.kind !== "focusMode" && <aside className="sidebar" aria-label="頁面">
-        <div className="brand" aria-label={zhTW.brand.name}><span className="brand-mark">{zhTW.brand.mark}</span></div>
+      {view.kind !== "focusMode" && <aside className="sidebar" aria-label="主要導覽">
+        <div className="brand" aria-label={zhTW.brand.name}><span className="brand-mark">{zhTW.brand.mark}</span><strong>Personal Place</strong></div>
         <nav className="workspace-list">
-          {state.pages.map((page) => (
-            <button
-              className={`workspace-button ${view.kind !== "systemWorkspace" && page.id === activePage.id ? "is-active" : ""}`}
-              key={page.id}
-              onClick={() => showDashboard(page.id)}
-              title={page.name}
-            >
-              <PageIcon symbol={page.symbol} pageName={page.name} /><small>{page.name}</small>
-            </button>
-          ))}
-          {editing && (
-            <button className="workspace-button add-page-button" onClick={() => setOverlay({ kind: "pages" })} title="管理頁面">
-              <span aria-hidden="true">＋</span><small>頁面</small>
-            </button>
-          )}
-        </nav>
-        <div className="sidebar-footer-actions">
-          <button
-            className={`workspace-button edit-mode-button${editing ? " is-active" : ""}`}
-            type="button"
-            disabled={!persistenceReady || mutationBusy}
-            aria-pressed={editing}
-            onClick={toggleEditingMode}
-            title={editing ? zhTW.sidebar.finishEditingTitle : zhTW.sidebar.editTitle}
-          >
-            <span aria-hidden="true">{editing ? "✓" : "✎"}</span>
-            <small>{editing ? zhTW.sidebar.finishEditing : zhTW.sidebar.edit}</small>
-          </button>
-          {getSystemWorkspaces().map((workspace) => {
+          {getSystemWorkspaces().filter((workspace) => workspace.navigationGroup === "core").map((workspace) => {
             const active = view.kind === "systemWorkspace" && view.workspaceId === workspace.id;
-            return (
-              <button
-                key={workspace.id}
-                className={`workspace-button ${workspace.sidebarClassName ?? ""}${active ? " is-active" : ""}`}
-                type="button"
-                aria-current={active ? "page" : undefined}
-                onClick={() => showSystemWorkspace(workspace.id)}
-                title={workspace.title}
-              >
-                <span className="activity-sidebar-icon" aria-hidden="true">{workspace.icon}</span>
-                <small>{workspace.title}</small>
-              </button>
-            );
+            return <button key={workspace.id} className={`workspace-button${active ? " is-active" : ""}`} type="button" aria-current={active ? "page" : undefined} onClick={() => showSystemWorkspace(workspace.id)}><span aria-hidden="true">{workspace.icon}</span><small>{workspace.title}</small></button>;
           })}
-          <button className="workspace-button settings-button" onClick={() => setOverlay({ kind: "settings" })} title="設定">
-            <span aria-hidden="true">⚙</span><small>{zhTW.sidebar.settings}</small>
-          </button>
-        </div>
+          <div className="sidebar-section-heading"><span>我的空間</span><button type="button" disabled={!persistenceReady} onClick={() => setOverlay({ kind: "pages" })}>管理</button></div>
+          {state.pages.map((page) => {
+            const active = view.kind !== "systemWorkspace" && page.id === activePage.id;
+            return <button className={`workspace-button page-workspace-button${active ? " is-active" : ""}`} key={page.id} aria-current={active ? "page" : undefined} onClick={() => showDashboard(page.id)} title={page.name}><PageIcon symbol={page.symbol} pageName={page.name} /><small>{page.name}</small></button>;
+          })}
+          {getSystemWorkspaces().filter((workspace) => workspace.navigationGroup === "support").map((workspace) => {
+            const active = view.kind === "systemWorkspace" && view.workspaceId === workspace.id;
+            return <button key={workspace.id} className={`workspace-button${active ? " is-active" : ""}`} type="button" aria-current={active ? "page" : undefined} onClick={() => showSystemWorkspace(workspace.id)}><span aria-hidden="true">{workspace.icon}</span><small>{workspace.title}</small></button>;
+          })}
+        </nav>
+        <div className="sidebar-footer-actions"><button className="workspace-button settings-button" onClick={() => setOverlay({ kind: "settings" })} title="設定"><span aria-hidden="true">⚙</span><small>設定</small></button></div>
       </aside>}
 
       <main ref={mainContentRef} className={`main-content${view.kind !== "dashboard" ? " is-workspace-view" : ""}${openGroup ? " is-place-detail" : ""}`}>
         {view.kind === "focusMode" ? (
           <FocusMode controller={focusController} cards={state.cards} onLeave={() => { setView(systemWorkspaceView("today")); scheduleMainScroll(0); }} onLaunchPlace={async (groupId) => { const result = await launchGroup(groupId); if (result.items.some((item) => item.status === "success")) setNotice("已開啟這個地方的工作環境。"); }} />
         ) : activeSystemWorkspace ? (
-          activeSystemWorkspace.id === "today"
-            ? <TodayWorkspace focusState={focusState} focusReady={focusController.ready} focusError={focusController.error} onStartFocus={startAppFocus} onReturnToFocus={() => setView({ kind: "focusMode" })} />
-            : activeSystemWorkspace.render()
+          activeSystemWorkspace.id === "today" ? <TodayWorkspace focusState={focusState} focusReady={focusController.ready} focusError={focusController.error} onStartFocus={startAppFocus} onReturnToFocus={() => setView({ kind: "focusMode" })} onOpenTodo={() => showSystemWorkspace("todo")} onCreateTodo={() => showSystemWorkspace("todo", "create")} onOpenPlace={(groupId) => navigateToAppView({ kind: "place", groupId, origin: captureOrigin() })} />
+            : activeSystemWorkspace.id === "todo" ? <TodoWorkspace initialCreate={todoEntryMode === "create"} backLabel="返回今天" onClose={() => showSystemWorkspace("today")} />
+              : activeSystemWorkspace.id === "calendar" ? <CalendarWorkspace />
+                : <ActivityWorkspace />
         ) : view.kind === "note" && currentNote ? (
           <NoteWorkspace
             note={currentNote}
