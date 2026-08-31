@@ -3742,26 +3742,35 @@ textarea:focus-visible,
 
 /* Calendar is a system workspace registered beside Activity. Its styles stay
    feature-scoped so AppShell does not need Calendar-specific layout rules. */
-.today-workspace { width: min(900px, 100%); margin: 0 auto; padding: 38px 40px 72px; color: var(--text-primary); }
+.today-workspace { width: min(1040px, 100%); margin: 0 auto; padding: 38px 40px 72px; color: var(--text-primary); }
 .today-heading { margin-bottom: 28px; }
 .today-heading h1 { margin: 0 0 6px; font-size: clamp(30px, 4vw, 46px); }
 .today-heading p { margin: 0; color: var(--text-muted); }
 .today-sections { display: grid; gap: 16px; }
-.today-section { padding: 20px 22px; border: 1px solid var(--border-soft); border-radius: 15px; background: var(--surface-1); }
-.today-section > header { margin-bottom: 14px; }
-.today-section h2 { margin: 0; font-size: 17px; }
-.today-next { border-color: color-mix(in srgb, var(--accent) 42%, var(--border-soft)); }
+.today-next { padding: 16px 20px; border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border-soft)); border-radius: 13px; background: color-mix(in srgb, var(--surface-1) 72%, var(--accent)); }
+.today-next > header, .today-todo-section > header, .today-continue-section > header { margin-bottom: 14px; }
+.today-next h2, .today-todo-section h2, .today-continue-section h2 { margin: 0; font-size: 17px; }
 .today-next-event { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 18px; align-items: start; }
 .today-next-event > strong { color: var(--accent); font-size: 24px; font-variant-numeric: tabular-nums; }
 .today-next-event h3, .today-continue h3 { margin: 0 0 5px; font-size: 19px; }
 .today-next-event p, .today-continue p { margin: 0; color: var(--text-muted); }
 .today-muted { margin: 0; color: var(--text-muted); }
-.today-todos { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
-.today-todos label { display: flex; align-items: center; gap: 10px; cursor: pointer; }
-.today-todos input { width: 17px; height: 17px; accent-color: var(--accent); }
+.today-main-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.today-main-grid.has-continue { grid-template-columns: minmax(0, 1.7fr) minmax(260px, .9fr); }
+.today-todo-section { padding: 20px 22px; border: 1px solid var(--border-soft); border-radius: 15px; background: var(--surface-1); }
+.today-continue-section { padding: 18px 20px; border: 1px solid var(--border-soft); border-radius: 13px; background: color-mix(in srgb, var(--surface-1) 76%, var(--accent)); }
+.today-todos { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.today-todos li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 9px; border-radius: 9px; }
+.today-todos li:hover { background: color-mix(in srgb, var(--surface-2) 55%, transparent); }
+.today-todos li.is-busy { opacity: .58; }
+.today-todos label { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+.today-todos input { width: 18px; height: 18px; accent-color: var(--accent); }
+.today-todos small { color: var(--text-muted); }
 .today-continue { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .today-inline-error { display: block; margin-top: 8px; color: #ffb7b7; }
-@media (max-width: 700px) { .today-workspace { padding: 28px 20px 60px; } .today-next-event { grid-template-columns: 1fr; gap: 5px; } .today-continue { flex-direction: column; } }
+.today-loading { opacity: .72; }
+.today-dashboard-loading, .today-dashboard-error { align-self: center; padding: 14px 4px; }
+@media (max-width: 700px) { .today-workspace { padding: 28px 20px 60px; } .today-next-event { grid-template-columns: 1fr; gap: 5px; } .today-main-grid.has-continue { grid-template-columns: 1fr; } .today-continue { flex-direction: column; } }
 .calendar-workspace { width: min(1100px, 100%); margin: 0 auto; padding: 38px 40px 72px; color: var(--text-primary); }
 .calendar-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
 .calendar-heading h1 { margin: 3px 0 8px; font-size: clamp(30px, 4vw, 46px); }

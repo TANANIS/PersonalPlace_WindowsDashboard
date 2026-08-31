@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   GroupLaunchResult,
   LauncherPreview,
@@ -15,7 +15,7 @@ interface GroupDetailViewProps {
   targetStatuses: Record<string, "available" | "missing" | "unavailable" | "unknown">;
   editing: boolean;
   busy: boolean;
-  onBack: () => void;
+  onBack: () => void | Promise<void>;
   backLabel?: string;
   onAddTarget: () => void;
   onCreateNote: () => void;
@@ -69,9 +69,13 @@ export function GroupDetailView({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const savedValueRef = useRef(group.resumeNote);
+  const resumeDraftRef = useRef(group.resumeNote);
+  const saveSequenceRef = useRef(0);
+  const saveChainRef = useRef(Promise.resolve());
 
   useEffect(() => {
     setResumeDraft(group.resumeNote);
+    resumeDraftRef.current = group.resumeNote;
     savedValueRef.current = group.resumeNote;
     setSaveState("idle");
     setLaunchResult(null);
@@ -87,19 +91,42 @@ export function GroupDetailView({
     }
   }, [editing]);
 
+  const flushResume = useCallback(() => {
+    const value = resumeDraftRef.current;
+    if (value === savedValueRef.current) return Promise.resolve();
+    const sequence = ++saveSequenceRef.current;
+    setSaveState("saving");
+    const task = saveChainRef.current
+      .catch(() => undefined)
+      .then(() => onSaveResume(value))
+      .then(() => {
+        if (sequence === saveSequenceRef.current) {
+          savedValueRef.current = value;
+          setSaveState("saved");
+        }
+      })
+      .catch((error) => {
+        if (sequence === saveSequenceRef.current) setSaveState("failed");
+        throw error;
+      });
+    saveChainRef.current = task.catch(() => undefined);
+    return task;
+  }, [onSaveResume]);
+
   useEffect(() => {
     if (resumeDraft === savedValueRef.current) return;
-    setSaveState("saving");
-    const timer = window.setTimeout(() => {
-      void onSaveResume(resumeDraft)
-        .then(() => {
-          savedValueRef.current = resumeDraft;
-          setSaveState("saved");
-        })
-        .catch(() => setSaveState("failed"));
-    }, 500);
+    const timer = window.setTimeout(() => { void flushResume().catch(() => undefined); }, 500);
     return () => window.clearTimeout(timer);
-  }, [onSaveResume, resumeDraft]);
+  }, [flushResume, resumeDraft]);
+
+  async function handleBack() {
+    try {
+      await flushResume();
+      await onBack();
+    } catch {
+      // Keep the place open and preserve the draft when saving fails.
+    }
+  }
 
   const launchCount = useMemo(
     () => cards.filter((card) => card.cardType === "target" && card.launchEnabled).length,
@@ -151,7 +178,7 @@ export function GroupDetailView({
     <section className="place-detail" aria-labelledby="place-detail-title">
       <header className="place-detail-header">
         <div>
-          <button type="button" className="back-button" onClick={onBack}>
+          <button type="button" className="back-button" onClick={() => void handleBack()}>
             ← {backLabel}
           </button>
           <p className="eyebrow">YOUR PLACE</p>
@@ -172,9 +199,9 @@ export function GroupDetailView({
 
       <section className={`place-resume-summary${resumeExpanded ? " is-expanded" : ""}`}>
         <button type="button" className="place-resume-toggle" aria-expanded={resumeExpanded} onClick={() => setResumeExpanded((current) => !current)}>
-          <span><small>上次做到這裡</small><strong>{resumeDraft.trim() || "還沒有記錄進度"}</strong></span><span aria-hidden="true">{resumeExpanded ? "收起" : resumeDraft.trim() ? "展開" : "新增"}</span>
+          <span><small>接續點</small><strong>{resumeDraft.trim() || "留下接續點"}</strong></span><span aria-hidden="true">{resumeExpanded ? "收起" : resumeDraft.trim() ? "更新" : "新增"}</span>
         </button>
-        {resumeExpanded && <div className="place-resume-editor"><label className="sr-only" htmlFor="resume-note">上次做到這裡</label><textarea id="resume-note" value={resumeDraft} maxLength={2000} rows={5} autoFocus placeholder="例如：角色移動完成，下一步做跳躍動畫。" onChange={(event) => setResumeDraft(event.target.value)} /><div className={`save-state is-${saveState}`} role="status">{saveState === "saving" && "保存中…"}{saveState === "saved" && "已保存"}{saveState === "failed" && "保存失敗，內容仍保留在畫面上"}{saveState === "idle" && `${resumeDraft.length} / 2,000`}</div></div>}
+        {resumeExpanded && <div className="place-resume-editor"><label className="sr-only" htmlFor="resume-note">接續點</label><textarea id="resume-note" value={resumeDraft} maxLength={2000} rows={5} autoFocus placeholder="例如：角色移動完成；下一步做跳躍動畫。" onChange={(event) => { resumeDraftRef.current = event.target.value; setResumeDraft(event.target.value); }} onBlur={() => void flushResume().catch(() => undefined)} /><div className={`save-state is-${saveState}`} role="status">{saveState === "saving" && "保存中…"}{saveState === "saved" && "已保存"}{saveState === "failed" && "保存失敗，內容仍保留在畫面上"}{saveState === "idle" && `${resumeDraft.length} / 2,000`}</div></div>}
       </section>
 
       <div className="place-detail-layout">

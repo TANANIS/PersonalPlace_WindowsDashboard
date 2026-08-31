@@ -4,12 +4,24 @@ Personal Place 是 Windows 上、本機優先的個人數位首頁。你可以�
 
 ## 下載
 
-目前版本：**1.7.3**
+目前版本：**1.7.4**
 
-- [免安裝版 EXE（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.7.3/releases/Personal-Place-1.7.3/Personal-Place-1.7.3-portable.exe)
-- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.7.3/releases/Personal-Place-1.7.3/SHA256SUMS.txt)
+- [免安裝版 EXE（Windows 10／11 x64）](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.7.4/releases/Personal-Place-1.7.4/Personal-Place-1.7.4-portable.exe)
+- [SHA-256 驗證碼](https://github.com/TANANIS/PersonalPlace_WindowsDashboard/raw/refs/tags/v1.7.4/releases/Personal-Place-1.7.4/SHA256SUMS.txt)
 
-v1.7.3 的公開下載目前只保留免安裝版；因應 Windows Defender 對 installer 的機器學習偵測，安裝版連結暫時下架。免安裝版未使用受信任的 Authenticode 憑證簽章，Windows 仍可能顯示 SmartScreen、無法驗證發行者或安全性情報警告；SHA-256 只用來驗證下載內容是否與本 repository 發布的檔案一致。
+v1.7.4 的公開下載目前只保留免安裝版；因應 Windows Defender 對 installer 的機器學習偵測，安裝版連結暫時下架。免安裝版未使用受信任的 Authenticode 憑證簽章，Windows 仍可能顯示 SmartScreen、無法驗證發行者或安全性情報警告；SHA-256 只用來驗證下載內容是否與本 repository 發布的檔案一致。
+
+## 1.7.4：Today 與接續點
+
+- Today 改善資訊層級，沒有固定行程時不再佔據主要視覺，並讓 Todo 成為主要工作區塊。
+- Place 的 resumeNote 以「接續點」呈現，在離開或編輯完成時更可靠地保存；Today 可顯示最近 Place 的接續點。
+- Today 可直接開啟 Place 已選取的一次開啟項目，並顯示成功、部分失敗或失敗結果。
+
+## 1.7.3：Today 與 Todo 關聯改善
+
+- 新增系統級「今天」Workspace，整合 Calendar 的下一個占用時間事件、跨 Todo Lists 的待辦，以及最近有進度記錄的 Place／Group。
+- Todo Widget 新增時可建立新 List 或選擇 existing List；Widget title 會跟隨 Todo List 名稱，同一個 List 也可被多個 Widget 引用。
+- Settings 顯示動態 App version 與 build provenance。
 
 ## 1.7.0：Calendar Workspace 與架構基礎
 
@@ -60,6 +72,7 @@ Personal Place 只透過 Tauri 後端連線固定的 `http://127.0.0.1:5600`，�
 - Place 可記錄最近進度，並依序開啟選定項目。
 - 純文字筆記採閱讀優先的內頁，需要時再進入編輯。
 - Todo、Focus Timer 與使用時間提供卡片摘要與完整工作區。
+- 系統級「今天」工作區整合下一個固定行程、待辦事項與最近進度，提供每日開始工作的入口。
 - 系統級 Calendar 工作區可匯入本機 `.ics`，閱讀每日 agenda、下一個占用時間事件與事件詳細內容。
 - 系統級「活動」工作區可選擇性讀取本機 ActivityWatch，查看有效使用時間、App／網站排行與最近活動。
 - `Ctrl + K` 可跨 Page、Place、筆記與卡片搜尋。

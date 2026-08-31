@@ -70,8 +70,8 @@ afterEach(() => {
 describe("GroupDetailView", () => {
   it("在 500ms 後自動保存上次做到這裡", async () => {
     const props = renderView();
-    fireEvent.click(screen.getByRole("button", { name: /上次做到這裡/ }));
-    fireEvent.change(screen.getByLabelText("上次做到這裡"), {
+    fireEvent.click(screen.getByRole("button", { name: /接續點/ }));
+    fireEvent.change(screen.getByLabelText("接續點"), {
       target: { value: "角色移動完成" },
     });
     expect(props.onSaveResume).not.toHaveBeenCalled();
@@ -80,6 +80,35 @@ describe("GroupDetailView", () => {
       { timeout: 1200 },
     );
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("已保存"));
+  });
+
+  it("shows an action-oriented empty resume state", () => {
+    renderView();
+    expect(screen.getByText("留下接續點")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /接續點/ }));
+    expect(screen.getByPlaceholderText(/角色移動完成/)).toBeInTheDocument();
+  });
+
+  it("flushes a dirty resume before going back", async () => {
+    const onBack = vi.fn();
+    const props = renderView({ onBack });
+    fireEvent.click(screen.getByRole("button", { name: /接續點/ }));
+    fireEvent.change(screen.getByLabelText("接續點"), { target: { value: "最新接續" } });
+    fireEvent.click(screen.getByRole("button", { name: /返回頁面/ }));
+    await waitFor(() => expect(props.onSaveResume).toHaveBeenCalledWith("最新接續"));
+    expect(onBack).toHaveBeenCalled();
+  });
+
+  it("stays in the place when the back flush fails", async () => {
+    const onBack = vi.fn();
+    const onSaveResume = vi.fn().mockRejectedValue(new Error("save failed"));
+    renderView({ onBack, onSaveResume });
+    fireEvent.click(screen.getByRole("button", { name: /接續點/ }));
+    fireEvent.change(screen.getByLabelText("接續點"), { target: { value: "不要遺失" } });
+    fireEvent.click(screen.getByRole("button", { name: /返回頁面/ }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("保存失敗"));
+    expect(onBack).not.toHaveBeenCalled();
+    expect(screen.getByDisplayValue("不要遺失")).toBeInTheDocument();
   });
 
   it("Launch Set 預設不勾選，勾選時只傳卡片 ID 對應的卡片", () => {
