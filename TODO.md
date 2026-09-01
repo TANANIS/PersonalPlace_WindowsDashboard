@@ -2,38 +2,49 @@
 
 > Current product / implementation handoff for Personal Place 2.0.
 >
-> Read this before proposing the next 2.0 implementation stage. The purpose of this document is to preserve the product decisions, accepted implementation state, invariants, and next work so a new planning conversation does not restart from v1.9 assumptions.
+> Read this before proposing the next 2.0 implementation stage. The purpose of this document is to preserve accepted product decisions, implementation state, invariants, known technical debt, and the next bounded stage.
 
 ---
 
 ## Current status
 
-Personal Place 2.0 product consolidation is well underway.
+Personal Place 2.0 product consolidation has completed its product-definition, Today / Focus restructuring, Page / Place interaction cleanup, and Stage 5 visual-system migration + runtime recovery.
 
 ```text
-A — Product narrative                RESOLVED
-B — Today / Home IA                  RESOLVED
-C — Real Focus Mode                  RESOLVED
-D — Visual system + UI deletion      RESOLVED
-Implementation architecture review   COMPLETE
+A — Product narrative                         RESOLVED
+B — Today / Home IA                           RESOLVED
+C — Real Focus Mode                           RESOLVED
+D — Visual system + UI deletion               RESOLVED
+Implementation architecture review            COMPLETE
 
-Stage 0 — baseline characterization                  ACCEPTED
-Stage 1 — navigation foundation + standalone Todo    ACCEPTED
-Stage 2 — app-level Focus + FocusMode                 ACCEPTED
-Stage 2 acceptance cleanup                           ACCEPTED
-Stage 3 — Today home + startup + sidebar IA           ACCEPTED
-Stage 3 acceptance cleanup                           ACCEPTED
-Stage 4 — Page / Place browse-vs-organize cleanup     ACCEPTED
+Stage 0 — baseline characterization           ACCEPTED
+Stage 1 — navigation + standalone Todo         ACCEPTED
+Stage 2 — app-level Focus + FocusMode          ACCEPTED
+Stage 2 acceptance cleanup                    ACCEPTED
+Stage 3 — Today home + startup + sidebar IA    ACCEPTED
+Stage 3 acceptance cleanup                    ACCEPTED
+Stage 4 — Page / Place browse-vs-organize      ACCEPTED
+Stage 5 — visual-system migration              ACCEPTED
+Stage 5 runtime recovery                      ACCEPTED
 
-NEXT: Stage 5 — visual-system migration
+NEXT: Stage 6 — legacy Focus / Usage widget bridge
 ```
 
 Current accepted implementation checkpoint:
 
 ```text
-0c943108664e0a6278f23bee2af9aa8f49e03d1a
-feat: separate Personal Place browsing from organizing
+85d31ab6cdeea606f012e922eca728bc1bc97e6b
+fix: quiet dashboard header controls
 ```
+
+Release packaging after the accepted Stage 5 implementation:
+
+```text
+504e1863e3378e9cfba10a72b64afff03d48c78f
+release: publish Personal Place 1.9.1
+```
+
+`504e186` is a release / versioning checkpoint. Use `85d31ab` as the Stage 5 product implementation checkpoint when reasoning about later implementation history.
 
 Persistence remains intentionally unchanged:
 
@@ -43,7 +54,7 @@ Backup format version: 4
 Migration added for 2.0 so far: no
 ```
 
-Latest accepted validation baseline after Stage 4:
+The last explicitly recorded automated gate before the final runtime-recovery series was:
 
 ```text
 pnpm test: 37 files / 129 tests passed
@@ -54,7 +65,9 @@ cargo fmt --check: passed
 git diff --check: passed
 ```
 
-Stage 4 desktop smoke was limited because port `1420` was already occupied by an existing Vite server. The existing process was not terminated automatically.
+Stage 5 also required real desktop runtime review because automated tests did not detect CSS / layout regressions. The recovery was iterated directly against the runtime and then published as 1.9.1.
+
+Do not treat green unit tests alone as sufficient evidence for future visual acceptance.
 
 ---
 
@@ -156,7 +169,7 @@ Meaning:
 
 # Architecture / domain invariants
 
-These contracts are already established and must survive Stages 5–7.
+These contracts are accepted and must survive Stages 6–7.
 
 ```text
 plannedFor != dueAt
@@ -193,11 +206,11 @@ Also preserve:
 
 # Canonical design documents
 
-Use these instead of reconstructing resolved design decisions from conversation history.
+Do not reconstruct resolved design decisions from conversation history when these documents already exist.
 
 ## A + B — Product narrative / Today IA
 
-This document now contains the concise accepted summary.
+This TODO contains the concise accepted summary.
 
 Important resolved B rules:
 
@@ -230,7 +243,7 @@ Core rule:
 
 > **Use typography, spacing and omission before using another card, border, badge, glow or color block.**
 
-D is the primary design contract for Stage 5.
+D remains the visual contract through Stage 7.
 
 ## Implementation architecture
 
@@ -255,7 +268,7 @@ It defines:
 
 ## Stage 0 — Baseline characterization — ACCEPTED
 
-Baseline tests / contracts established before restructuring.
+Baseline tests / contracts were established before restructuring.
 
 No product-domain rewrite.
 
@@ -350,7 +363,7 @@ idle → Today
 
 Startup routing is a one-time decision. Later Focus polling cannot hijack navigation after the user intentionally leaves FocusMode.
 
-Generic initialization failures now have a visible retryable startup error path. Database recovery remains higher priority.
+Generic initialization failures have a visible retryable startup error path. Database recovery remains higher priority.
 
 Delivered Today 2.0 IA:
 
@@ -381,7 +394,7 @@ Settings
 
 The global `整理` navigation entry was removed.
 
-System workspace registry is now metadata-first.
+System workspace registry is metadata-first.
 
 ---
 
@@ -403,7 +416,7 @@ ORGANIZE PAGE
 → select / reorder / edit / resize / move / group / delete
 ```
 
-Page now exposes contextual:
+Page exposes contextual:
 
 ```text
 整理
@@ -412,7 +425,7 @@ Page now exposes contextual:
 
 Existing editing / selection / reorder / ContextActionBar machinery was reused rather than rewritten.
 
-Normal Page cards no longer render:
+Normal Page cards no longer render the old dashboard-only affordances:
 
 ```text
 kind-label
@@ -443,14 +456,6 @@ Place title
 內容
 ```
 
-Normal Place no longer leads with old dashboard metadata such as:
-
-```text
-YOUR PLACE
-CONTENTS
-item count / recent-use metadata
-```
-
 `resumeNote` persistence behavior remains unchanged:
 
 - visible continuation content;
@@ -466,49 +471,45 @@ Focus / launch separation has explicit regression coverage:
 開啟這個地方 → onLaunch only
 ```
 
-Legacy Todo / Focus / Usage widgets remain compatible for later Stage 6 handling.
-
-### Stage 4 known non-blockers
-
-- interactive Tauri smoke was limited because port `1420` was already occupied;
-- `src/styles/dashboard.css` currently contains a likely dead selector:
-
-```css
-.launcher-grid.is-editing .organize-button
-```
-
-because the organize button lives in the topbar rather than inside `.launcher-grid`.
-
-Do not create a special cleanup stage only for this selector; clean it during Stage 5 CSS consolidation.
+Legacy Todo / Focus / Usage widgets remained compatible for later Stage 6 handling.
 
 ---
 
-# NEXT — Stage 5: visual-system migration
+## Stage 5 — Visual-system migration + runtime recovery — ACCEPTED
 
-Stage 5 is now the next implementation task.
-
-This is not another product-architecture redesign.
-
-The product flow and interaction hierarchy are already established.
-
-Stage 5 should make the accepted 2.0 architecture consistently look and feel like one product.
-
-Primary scope from D:
+Initial migration:
 
 ```text
-typography
-spacing
-surface hierarchy
-radius hierarchy
-neutral / accent usage
-primary / secondary / destructive actions
-hover / focus / motion behavior
-responsive navigation
-CSS consolidation
-accessibility visual states
+c8152de feat: migrate Personal Place 2.0 visual system
 ```
 
-### Visual energy hierarchy
+Structural acceptance cleanup:
+
+```text
+5002491 fix: restore Stage 5 structural CSS behavior
+9720adf fix: complete Stage 5 acceptance styling
+```
+
+The first migration passed automated tests but removed too many feature-specific structural CSS contracts together with the old decoration. Real runtime use exposed regressions that automated tests did not detect.
+
+Runtime recovery then proceeded as a direct diagnose → implement → inspect loop:
+
+```text
+b13fab6 fix: recover Stage 5 runtime component contracts
+4a69f30 fix: finish Stage 5 visual contracts
+cbc70e5 fix: polish remaining Stage 5 layouts
+85d31ab fix: quiet dashboard header controls
+```
+
+Release packaging:
+
+```text
+504e186 release: publish Personal Place 1.9.1
+```
+
+### Stage 5 delivered visual direction
+
+The product now consistently targets:
 
 ```text
 Focus     → quietest, one chosen work context, almost no navigation
@@ -516,70 +517,139 @@ Today     → calm and directional
 Page      → wider intentional personal space
 Place     → work context + continuation
 Todo      → denser management workspace
-Calendar  → structured tool
-Activity  → retrospective review
-Settings  → denser configuration workspace
+Calendar  → structured supporting tool
+Activity  → neutral retrospective review
+Settings  → denser practical configuration workspace
 ```
 
-### D rules Stage 5 must enforce
+Core Stage 5 rules retained:
 
 - one screen, one focal point;
 - neutral surfaces dominate;
-- accent color is semantic, not decorative;
-- avoid nested bordered rectangles;
-- use typography / spacing before another card;
-- remove remaining decorative glow / bloom / excessive gradients;
-- avoid huge hover elevation;
-- radius should communicate role rather than making everything equally rounded;
-- one primary action per local decision;
-- motion should be short and functional;
-- respect `prefers-reduced-motion`;
-- Focus must remain the quietest state;
-- responsive behavior must not collapse back into the old dense icon-rail identity.
+- accent color is semantic rather than decorative;
+- typography / spacing / omission before another card;
+- no decorative card glow / bloom / old icon rail;
+- short functional motion with reduced-motion support;
+- Focus remains the quietest state;
+- normal Page browsing remains distinct from organize mode;
+- desktop navigation remains text-first;
+- narrow navigation remains a temporary drawer.
 
-### Stage 5 must NOT
+### Runtime recovery outcomes
 
-Do not:
+The recovery explicitly restored or refined contracts for:
 
-- change product domain semantics;
-- change startup routing;
-- redesign Today IA again;
-- merge Focus and launch;
-- change schema / backup;
-- remove legacy Focus / Usage widgets yet;
-- turn visual cleanup into an AppShell rewrite.
+- desktop shell / sidebar structure;
+- Page card grid and mixed card subtypes;
+- Page icons and Page manager layout;
+- organize-mode selection / drag surfaces;
+- Place structure;
+- Todo list / inspector / subtask / editor structure;
+- Calendar empty/detail layouts;
+- Activity hierarchy / timeline;
+- Settings / Calendar-source / backup / recovery layouts;
+- legacy Todo / Focus / Usage widget previews;
+- search behavior and Page header attention balance;
+- five color themes and theme-specific neutral surface atmosphere;
+- responsive layout paths.
+
+### Stage 5 important lesson
+
+Do not use automated tests as a substitute for runtime visual acceptance.
+
+The failed acceptance attempt demonstrated that CSS migrations can preserve DOM behavior and test output while breaking actual layout, theme application, content policies, and management surfaces.
+
+For future visual stages, prefer:
+
+```text
+component contract inventory
+→ behavioral baseline
+→ implementation
+→ actual runtime review
+→ automated validation
+→ accepted checkpoint
+```
+
+### Stage 5 known technical debt — NOT A BLOCKER
+
+`src/styles/stage5-recovery.css` is intentionally loaded after the subsystem styles and currently acts as a runtime recovery / override layer.
+
+This was acceptable to stabilize Stage 5 and publish 1.9.1, but it should **not** become permanent architecture.
+
+Stage 7 should fold its rules back into their real owners where practical:
+
+```text
+Page / cards        → dashboard.css
+Todo                → todo.css
+Calendar / Activity
+/ Settings           → support-workspaces.css
+Theme surfaces       → tokens.css
+true compatibility   → styles.css or explicit compatibility layer
+```
+
+Then remove or materially shrink `stage5-recovery.css`.
+
+Do not reopen Stage 5 solely to perform this stylesheet consolidation.
 
 ---
 
-# Stage 6 — Legacy Focus / Usage widget bridge — PENDING
+# NEXT — Stage 6: Legacy Focus / Usage widget bridge
 
-After visual migration, handle legacy widget duplication and compatibility deliberately.
+Stage 6 is the next product implementation task.
+
+The goal is to remove duplicate legacy product surfaces without deleting persisted user data or changing the canonical Focus / Activity architecture.
 
 Expected direction:
 
-- stop offering new legacy Focus / Usage widgets in normal add flow;
-- preserve existing persisted cards safely;
-- keep old cards non-crashing;
-- relocate any still-needed Usage controls before deprecating its normal widget surface;
+- stop offering new legacy Focus / Usage widgets in the normal Add flow;
+- keep Todo widget creation available;
+- preserve existing persisted Focus / Usage cards safely;
+- convert existing Focus / Usage cards into quiet compatibility shortcuts / bridges where appropriate;
+- keep old cards non-crashing and understandable;
+- relocate any still-needed Usage tracking / data controls before deprecating its normal widget surface;
 - keep built-in Usage distinct from ActivityWatch / Activity;
-- do not delete user data.
+- do not delete user data;
+- remove old full Focus presentation only where canonical app-level Focus already safely replaces it;
+- avoid unnecessary widget polling after compatibility paths are simplified.
 
 Canonical detail lives in D + implementation architecture.
 
+### Stage 6 must NOT
+
+Do not:
+
+- change schema / backup format without a genuine persistent-data requirement;
+- delete persisted legacy widget data;
+- merge Usage and ActivityWatch semantics;
+- alter `plannedFor` / `dueAt` meaning;
+- change Focus completion semantics;
+- launch Place work environments merely by starting Focus;
+- perform the Stage 7 CSS consolidation early unless a Stage 6 change genuinely requires a tiny local cleanup;
+- add unrelated product features.
+
 ---
 
-# Stage 7 — Consolidation cleanup + final acceptance + release prep — PENDING
+# Stage 7 — Consolidation cleanup + final 2.0 acceptance — PENDING
 
-Final stage should:
+Stage 7 should close the consolidation program rather than add product scope.
 
-- remove obsolete compatibility / CSS paths made unnecessary by Stages 0–6;
+Required work:
+
+- remove obsolete compatibility / bridge paths made unnecessary by Stages 0–6;
+- fold `stage5-recovery.css` rules back into stable subsystem ownership and remove / shrink the recovery layer;
+- clean remaining dead CSS / obsolete selectors;
 - run final A / B / C / D acceptance review;
-- run full validation / desktop smoke;
-- inspect backup / recovery / accessibility / responsive behavior;
+- run full automated validation;
+- perform real desktop runtime smoke across representative data;
+- verify all five themes;
+- verify wide / medium / narrow layouts;
+- verify keyboard / focus-visible / reduced-motion / forced-colors sanity;
+- verify Focus Todo / Focus Place / completion states manually;
+- inspect backup / recovery;
 - verify no hidden 1.9 Dashboard-first assumptions remain;
-- only then prepare 2.0 version / release work.
+- only then prepare the actual 2.0 version / release work.
 
-Do not bump the version or publish 2.0 before Stage 7 acceptance.
+Do not publish 2.0 before Stage 7 acceptance.
 
 ---
 
@@ -630,11 +700,12 @@ When continuing 2.0 work in a fresh conversation:
 
 1. Read this `TODO.md` first.
 2. Read [`PRODUCT_2_0_D_VISUAL_SYSTEM.md`](PRODUCT_2_0_D_VISUAL_SYSTEM.md).
-3. Read the Stage 5 section of [`PRODUCT_2_0_IMPLEMENTATION_ARCHITECTURE.md`](PRODUCT_2_0_IMPLEMENTATION_ARCHITECTURE.md).
-4. Inspect current `master` starting from accepted checkpoint `0c94310` (or newer if this TODO itself has been committed afterward).
+3. Read the Stage 6 section of [`PRODUCT_2_0_IMPLEMENTATION_ARCHITECTURE.md`](PRODUCT_2_0_IMPLEMENTATION_ARCHITECTURE.md).
+4. Inspect current `master`, using `85d31ab` as the accepted Stage 5 implementation checkpoint and `504e186` as the 1.9.1 release packaging checkpoint.
 5. Confirm no unrelated local / remote changes.
-6. Produce a bounded **Stage 5 Sol → Luna handoff**.
-7. Review Luna's actual GitHub diff before accepting Stage 5.
-8. Do not restart A / B / C / D design unless implementation reveals a genuine contradiction.
+6. Produce a bounded **Stage 6 Sol → Luna handoff**.
+7. Review Luna's actual GitHub diff before accepting Stage 6.
+8. Keep the Stage 5 recovery lesson: runtime-dependent visual work requires actual runtime review.
+9. Do not restart A / B / C / D design unless implementation reveals a genuine contradiction.
 
-The next task is **Stage 5 visual-system migration**, not another product-definition pass.
+The next task is **Stage 6 legacy Focus / Usage widget bridge**, not another Stage 5 visual pass.
